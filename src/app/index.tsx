@@ -295,6 +295,8 @@ export default function Index() {
     null,
   );
   const [mapCenter, setMapCenter] = useState<WalkPoint | null>(null);
+  const [debugMarkerPosition, setDebugMarkerPosition] =
+    useState<WalkPoint | null>(null);
   const [mapReady, setMapReady] = useState(false);
 
   const [resultModalVisible, setResultModalVisible] = useState(false);
@@ -706,6 +708,19 @@ export default function Index() {
 
     cameraRef.current?.zoomTo(15, {
       duration: 700,
+    });
+  }
+
+  function moveDebugMarker(deltaLatitude: number, deltaLongitude: number) {
+    setDebugMarkerPosition((previousPosition) => {
+      const basePoint =
+        previousPosition || currentLocation || mapCenter || getDefaultCenterPoint();
+
+      return {
+        latitude: basePoint.latitude + deltaLatitude,
+        longitude: basePoint.longitude + deltaLongitude,
+        timestamp: Date.now(),
+      };
     });
   }
 
@@ -1979,6 +1994,29 @@ export default function Index() {
     };
   }, [currentLocation]);
 
+  const debugMarkerGeoJson: MapGeoJsonData = useMemo(() => {
+    return {
+      type: "FeatureCollection",
+      features: debugMarkerPosition
+        ? [
+            {
+              type: "Feature",
+              properties: {
+                label: "TEST",
+              },
+              geometry: {
+                type: "Point",
+                coordinates: [
+                  debugMarkerPosition.longitude,
+                  debugMarkerPosition.latitude,
+                ],
+              },
+            },
+          ]
+        : [],
+    };
+  }, [debugMarkerPosition]);
+
 
   if (!profileReady) {
     return (
@@ -2156,6 +2194,34 @@ export default function Index() {
             }}
           />
         </GeoJSONSource>
+
+        <GeoJSONSource id="debug-marker-source" data={debugMarkerGeoJson as any}>
+          <Layer
+            id="debug-marker-dot"
+            type="circle"
+            paint={{
+              "circle-color": "#FF4D4D",
+              "circle-radius": 9,
+              "circle-stroke-color": "#FFFFFF",
+              "circle-stroke-width": 3,
+            }}
+          />
+          <Layer
+            id="debug-marker-label"
+            type="symbol"
+            layout={{
+              "text-field": ["get", "label"],
+              "text-size": 12,
+              "text-offset": [0, 1.45],
+              "text-anchor": "top",
+            }}
+            paint={{
+              "text-color": "#FFFFFF",
+              "text-halo-color": "#0B1020",
+              "text-halo-width": 2,
+            }}
+          />
+        </GeoJSONSource>
       </Map>
 
       {!mapReady && (
@@ -2219,6 +2285,14 @@ export default function Index() {
       >
         <Text style={[styles.locateButtonText, { color: accentTheme.color }]}>⌖</Text>
       </TouchableOpacity>
+
+      {/* TEMP DEBUG FEATURE: safe to remove, does not affect real GPS, walks, storage, coverage or statistics. */}
+      <DebugMarkerJoystick
+        onMove={moveDebugMarker}
+        onReset={() => {
+          setDebugMarkerPosition(currentLocation || mapCenter || getDefaultCenterPoint());
+        }}
+      />
 
       <View style={styles.bottomPanel} pointerEvents="box-none">
         {isWalking && (
@@ -3086,6 +3160,61 @@ export default function Index() {
   );
 }
 
+type DebugMarkerJoystickProps = {
+  onMove: (deltaLatitude: number, deltaLongitude: number) => void;
+  onReset: () => void;
+};
+
+function DebugMarkerJoystick({ onMove, onReset }: DebugMarkerJoystickProps) {
+  const step = 0.00018;
+
+  return (
+    <View style={styles.debugJoystickPanel}>
+      <Text style={styles.debugJoystickTitle}>TEST</Text>
+
+      <View style={styles.debugJoystickRow}>
+        <View style={styles.debugJoystickSpacer} />
+        <TouchableOpacity
+          style={styles.debugJoystickButton}
+          onPress={() => onMove(step, 0)}
+        >
+          <Text style={styles.debugJoystickButtonText}>↑</Text>
+        </TouchableOpacity>
+        <View style={styles.debugJoystickSpacer} />
+      </View>
+
+      <View style={styles.debugJoystickRow}>
+        <TouchableOpacity
+          style={styles.debugJoystickButton}
+          onPress={() => onMove(0, -step)}
+        >
+          <Text style={styles.debugJoystickButtonText}>←</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.debugJoystickReset} onPress={onReset}>
+          <Text style={styles.debugJoystickResetText}>•</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.debugJoystickButton}
+          onPress={() => onMove(0, step)}
+        >
+          <Text style={styles.debugJoystickButtonText}>→</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.debugJoystickRow}>
+        <View style={styles.debugJoystickSpacer} />
+        <TouchableOpacity
+          style={styles.debugJoystickButton}
+          onPress={() => onMove(-step, 0)}
+        >
+          <Text style={styles.debugJoystickButtonText}>↓</Text>
+        </TouchableOpacity>
+        <View style={styles.debugJoystickSpacer} />
+      </View>
+    </View>
+  );
+}
+
 const { height } = Dimensions.get("window");
 
 const styles = StyleSheet.create({
@@ -3299,6 +3428,63 @@ const styles = StyleSheet.create({
   locateButtonText: {
     color: "#06111F",
     fontSize: 22,
+    fontWeight: "900",
+  },
+  debugJoystickPanel: {
+    position: "absolute",
+    right: 16,
+    top: 200,
+    width: 126,
+    borderRadius: 18,
+    padding: 8,
+    backgroundColor: "rgba(11, 16, 32, 0.92)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 77, 77, 0.45)",
+  },
+  debugJoystickTitle: {
+    color: "#FFB8B8",
+    fontSize: 10,
+    fontWeight: "900",
+    textAlign: "center",
+    marginBottom: 4,
+  },
+  debugJoystickRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 3,
+  },
+  debugJoystickSpacer: {
+    width: 34,
+    height: 34,
+  },
+  debugJoystickButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255, 77, 77, 0.2)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.14)",
+  },
+  debugJoystickButtonText: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  debugJoystickReset: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FF4D4D",
+    marginHorizontal: 3,
+  },
+  debugJoystickResetText: {
+    color: "#FFFFFF",
+    fontSize: 18,
     fontWeight: "900",
   },
   floatingMenuButton: {
