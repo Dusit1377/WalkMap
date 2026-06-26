@@ -10,6 +10,17 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type {
+  Achievement,
+  ActiveWalkData,
+  CoverageRoute,
+  DailyProgress,
+  LevelInfo,
+  LocalProfile,
+  MapGeoJsonData,
+  WalkHistoryItem,
+  WalkPoint,
+} from "@/features/walkmap/domain";
 import {
   ActivityIndicator,
   AppState,
@@ -25,68 +36,6 @@ import {
   NativeModules,
   View,
 } from "react-native";
-
-type WalkPoint = {
-  latitude: number;
-  longitude: number;
-  timestamp: number;
-};
-
-type WalkHistoryItem = {
-  id: string;
-  date: string;
-  dayKey?: string;
-  distanceKm: number;
-  durationSec: number;
-  newCells: number;
-  totalCells?: number;
-  achievementsUnlocked?: string[];
-};
-
-type Achievement = {
-  id: string;
-  title: string;
-  description: string;
-  isUnlocked: boolean;
-};
-
-type LevelInfo = {
-  level: number;
-  title: string;
-  currentCells: number;
-  currentTarget: number;
-  nextTarget: number;
-  progressPercent: number;
-  cellsToNextLevel: number;
-};
-
-type DailyProgress = {
-  dayKey: string;
-  distanceKm: number;
-  durationSec: number;
-  newCells: number;
-  walks: number;
-  cellsGoalPercent: number;
-  distanceGoalPercent: number;
-  isGoalDone: boolean;
-};
-
-type MapGeoJsonData = {
-  type: "FeatureCollection";
-  features: any[];
-};
-
-type ActiveWalkData = {
-  startedAt: number;
-  points: WalkPoint[];
-  currentWalkCells?: string[];
-  distanceKm: number;
-};
-
-type CoverageRoute = {
-  id: string;
-  points: WalkPoint[];
-};
 
 type AppDialogVariant = "info" | "success" | "warning" | "error" | "danger";
 
@@ -210,13 +159,6 @@ const ACCENT_THEMES = [
 
 type AccentThemeId = (typeof ACCENT_THEMES)[number]["id"];
 type AccentTheme = (typeof ACCENT_THEMES)[number];
-
-type LocalProfile = {
-  id: string;
-  nickname: string;
-  createdAt: number;
-};
-
 
 const DAILY_DISTANCE_GOAL_KM = 1;
 
