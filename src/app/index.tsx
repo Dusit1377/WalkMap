@@ -6,7 +6,6 @@ import {
   type StyleSpecification,
   type CameraRef,
 } from "@maplibre/maplibre-react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -24,6 +23,24 @@ import {
   getProgressStats,
   getTodayKey,
 } from "@/features/statistics/calculations";
+import {
+  hasLegacyLocalProgressInStorage,
+  readAccentColorFromStorage,
+  readActiveWalkFromStorage,
+  readLastLocationFromStorage,
+  readLegacyProfileNicknameFromStorage,
+  readLocalProfileFromStorage,
+  readStoredWalkData,
+  removeActiveWalkFromStorage,
+  removeProfileSettingsFromStorage,
+  removeProgressDataFromStorage,
+  saveAccentColorToStorage,
+  saveActiveWalkToStorage,
+  saveCoverageRoutesToStorage,
+  saveHistoryToStorage,
+  saveLastLocationToStorage,
+  writeLocalProfileToStorage,
+} from "@/features/storage/walkmapStorage";
 import {
   ActivityIndicator,
   AppState,
@@ -59,14 +76,6 @@ type AppDialogData = {
   actions?: AppDialogAction[];
 };
 
-const STORAGE_CELLS_KEY = "walkmap_opened_cells"; // legacy: cleared/ignored in radius-only mode
-const STORAGE_HISTORY_KEY = "walkmap_history";
-const STORAGE_ACTIVE_WALK_KEY = "walkmap_active_walk";
-const STORAGE_COVERAGE_ROUTES_KEY = "walkmap_coverage_routes";
-const STORAGE_ACCENT_COLOR_KEY = "walkmap_accent_color";
-const STORAGE_LOCAL_PROFILE_KEY = "walkmap_local_profile";
-const STORAGE_LAST_LOCATION_KEY = "walkmap_last_location";
-const LEGACY_LOCAL_SESSION_KEY = "walkmap_local_session";
 const BACKGROUND_LOCATION_TASK = "walkmap_background_location_task";
 
 const CELL_SIZE = 0.00045;
@@ -191,69 +200,19 @@ function createLocalProfile(nickname: string): LocalProfile {
 }
 
 async function readLocalProfile() {
-  const raw = await AsyncStorage.getItem(STORAGE_LOCAL_PROFILE_KEY);
-
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as Partial<LocalProfile>;
-
-    if (!parsed || typeof parsed !== "object") {
-      return null;
-    }
-
-    if (typeof parsed.id !== "string" || typeof parsed.nickname !== "string") {
-      return null;
-    }
-
-    return {
-      id: parsed.id,
-      nickname: normalizeNickname(parsed.nickname),
-      createdAt: Number(parsed.createdAt) || Date.now(),
-    } satisfies LocalProfile;
-  } catch {
-    return null;
-  }
+  return readLocalProfileFromStorage(normalizeNickname);
 }
 
 async function writeLocalProfile(profile: LocalProfile) {
-  await AsyncStorage.setItem(STORAGE_LOCAL_PROFILE_KEY, JSON.stringify(profile));
+  await writeLocalProfileToStorage(profile);
 }
 
 async function hasLegacyLocalProgress() {
-  const savedValues = await Promise.all([
-    AsyncStorage.getItem(STORAGE_CELLS_KEY),
-    AsyncStorage.getItem(STORAGE_HISTORY_KEY),
-    AsyncStorage.getItem(STORAGE_ACTIVE_WALK_KEY),
-    AsyncStorage.getItem(STORAGE_COVERAGE_ROUTES_KEY),
-    AsyncStorage.getItem(STORAGE_ACCENT_COLOR_KEY),
-    AsyncStorage.getItem(LEGACY_LOCAL_SESSION_KEY),
-  ]);
-
-  return savedValues.some((value) => value !== null);
+  return hasLegacyLocalProgressInStorage();
 }
 
 async function readLegacyProfileNickname() {
-  const raw = await AsyncStorage.getItem(LEGACY_LOCAL_SESSION_KEY);
-
-  if (!raw) {
-    return "Гость";
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as { email?: unknown };
-
-    if (typeof parsed.email !== "string") {
-      return "Гость";
-    }
-
-    const [namePart] = parsed.email.split("@");
-    return normalizeNickname(namePart || parsed.email);
-  } catch {
-    return "Гость";
-  }
+  return readLegacyProfileNicknameFromStorage(normalizeNickname);
 }
 
 
@@ -263,28 +222,6 @@ function getCellIdGlobal(latitude: number, longitude: number) {
   const y = Math.floor(longitude / CELL_SIZE);
 
   return `${x}:${y}`;
-}
-
-async function readActiveWalkFromStorage() {
-  const savedActiveWalk = await AsyncStorage.getItem(STORAGE_ACTIVE_WALK_KEY);
-
-  if (!savedActiveWalk) return null;
-
-  const parsedActiveWalk = JSON.parse(savedActiveWalk) as ActiveWalkData;
-
-  if (
-    !parsedActiveWalk ||
-    typeof parsedActiveWalk.startedAt !== "number" ||
-    !Array.isArray(parsedActiveWalk.points)
-  ) {
-    return null;
-  }
-
-  return parsedActiveWalk;
-}
-
-async function saveActiveWalkToStorage(activeWalk: ActiveWalkData) {
-  await AsyncStorage.setItem(STORAGE_ACTIVE_WALK_KEY, JSON.stringify(activeWalk));
 }
 
 function addPointToActiveWalk(activeWalk: ActiveWalkData, newPoint: WalkPoint) {
@@ -398,7 +335,7 @@ export default function Index() {
   useEffect(() => {
     let isMounted = true;
 
-    AsyncStorage.getItem(STORAGE_ACCENT_COLOR_KEY)
+    readAccentColorFromStorage()
       .then((savedAccent) => {
         if (!isMounted) return;
 
@@ -585,7 +522,7 @@ export default function Index() {
     setAccentThemeId(themeId);
 
     try {
-      await AsyncStorage.setItem(STORAGE_ACCENT_COLOR_KEY, themeId);
+      await saveAccentColorToStorage(themeId);
     } catch {
       showAppDialog({
         title: "Не удалось сохранить цвет",
@@ -653,11 +590,8 @@ export default function Index() {
 
   async function loadData() {
     try {
-      const savedCells = await AsyncStorage.getItem(STORAGE_CELLS_KEY);
-      const savedHistory = await AsyncStorage.getItem(STORAGE_HISTORY_KEY);
-      const savedCoverageRoutes = await AsyncStorage.getItem(
-        STORAGE_COVERAGE_ROUTES_KEY,
-      );
+      const { savedCells, savedHistory, savedCoverageRoutes } =
+        await readStoredWalkData();
 
       if (savedCells) {
         const parsedCells = JSON.parse(savedCells);
@@ -749,25 +683,11 @@ export default function Index() {
   }
 
   async function readLastLocation() {
-    const savedLocation = await AsyncStorage.getItem(STORAGE_LAST_LOCATION_KEY);
-
-    if (!savedLocation) {
-      return null;
-    }
-
-    try {
-      const parsedLocation = JSON.parse(savedLocation);
-
-      if (isValidWalkPoint(parsedLocation)) {
-        return parsedLocation;
-      }
-    } catch {}
-
-    return null;
+    return readLastLocationFromStorage();
   }
 
   async function saveLastLocation(point: WalkPoint) {
-    await AsyncStorage.setItem(STORAGE_LAST_LOCATION_KEY, JSON.stringify(point));
+    await saveLastLocationToStorage(point);
   }
 
   function getDefaultCenterPoint(): WalkPoint {
@@ -795,17 +715,11 @@ export default function Index() {
   }
 
   async function saveHistory(nextHistory: WalkHistoryItem[]) {
-    await AsyncStorage.setItem(
-      STORAGE_HISTORY_KEY,
-      JSON.stringify(nextHistory),
-    );
+    await saveHistoryToStorage(nextHistory);
   }
 
   async function saveCoverageRoutes(nextCoverageRoutes: CoverageRoute[]) {
-    await AsyncStorage.setItem(
-      STORAGE_COVERAGE_ROUTES_KEY,
-      JSON.stringify(nextCoverageRoutes),
-    );
+    await saveCoverageRoutesToStorage(nextCoverageRoutes);
   }
 
   function isValidWalkPoint(point: any): point is WalkPoint {
@@ -1134,7 +1048,7 @@ export default function Index() {
     const activeWalk = await readActiveWalkFromStorage();
 
     await stopBackgroundLocation();
-    await AsyncStorage.removeItem(STORAGE_ACTIVE_WALK_KEY);
+    await removeActiveWalkFromStorage();
 
     const finishStartedAt = activeWalk?.startedAt ?? startedAt;
     const finishDurationSec = finishStartedAt
@@ -1241,10 +1155,7 @@ export default function Index() {
 
     await stopBackgroundLocation();
 
-    await AsyncStorage.removeItem(STORAGE_CELLS_KEY);
-    await AsyncStorage.removeItem(STORAGE_HISTORY_KEY);
-    await AsyncStorage.removeItem(STORAGE_ACTIVE_WALK_KEY);
-    await AsyncStorage.removeItem(STORAGE_COVERAGE_ROUTES_KEY);
+    await removeProgressDataFromStorage();
 
     setIsWalking(false);
     setStartedAt(null);
@@ -1261,8 +1172,7 @@ export default function Index() {
 
   async function resetApplication() {
     await resetData();
-    await AsyncStorage.removeItem(STORAGE_LOCAL_PROFILE_KEY);
-    await AsyncStorage.removeItem(STORAGE_ACCENT_COLOR_KEY);
+    await removeProfileSettingsFromStorage();
 
     const defaultAccent = ACCENT_THEMES[0].id;
     setAccentThemeId(defaultAccent);
