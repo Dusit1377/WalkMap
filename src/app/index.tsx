@@ -113,6 +113,7 @@ const STORAGE_ACTIVE_WALK_KEY = "walkmap_active_walk";
 const STORAGE_COVERAGE_ROUTES_KEY = "walkmap_coverage_routes";
 const STORAGE_ACCENT_COLOR_KEY = "walkmap_accent_color";
 const STORAGE_LOCAL_PROFILE_KEY = "walkmap_local_profile";
+const STORAGE_LAST_LOCATION_KEY = "walkmap_last_location";
 const LEGACY_LOCAL_SESSION_KEY = "walkmap_local_session";
 const BACKGROUND_LOCATION_TASK = "walkmap_background_location_task";
 
@@ -443,6 +444,7 @@ export default function Index() {
   const [currentLocation, setCurrentLocation] = useState<WalkPoint | null>(
     null,
   );
+  const [mapCenter, setMapCenter] = useState<WalkPoint | null>(null);
   const [mapReady, setMapReady] = useState(false);
 
   const [resultModalVisible, setResultModalVisible] = useState(false);
@@ -794,27 +796,73 @@ export default function Index() {
   }
 
   async function getInitialLocation() {
-    const permission = await Location.requestForegroundPermissionsAsync();
+    let startupPoint: WalkPoint | null = null;
 
-    if (permission.status !== "granted") {
-      return;
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+
+      if (permission.status === "granted") {
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+
+        const point: WalkPoint = {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          timestamp: location.timestamp || Date.now(),
+        };
+
+        await saveLastLocation(point);
+        setCurrentLocation(point);
+        startupPoint = point;
+      }
+    } catch {
+      startupPoint = null;
     }
 
-    const location = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.Balanced,
-    });
+    if (!startupPoint) {
+      startupPoint = await readLastLocation();
+    }
 
-    const point: WalkPoint = {
-      latitude: location.coords.latitude,
-      longitude: location.coords.longitude,
-      timestamp: Date.now(),
-    };
+    if (!startupPoint) {
+      startupPoint = getDefaultCenterPoint();
+    }
 
-    setCurrentLocation(point);
+    setMapCenter(startupPoint);
 
     setTimeout(() => {
-      moveMapTo(point);
+      moveMapTo(startupPoint);
     }, 700);
+  }
+
+  async function readLastLocation() {
+    const savedLocation = await AsyncStorage.getItem(STORAGE_LAST_LOCATION_KEY);
+
+    if (!savedLocation) {
+      return null;
+    }
+
+    try {
+      const parsedLocation = JSON.parse(savedLocation);
+
+      if (isValidWalkPoint(parsedLocation)) {
+        return parsedLocation;
+      }
+    } catch {}
+
+    return null;
+  }
+
+  async function saveLastLocation(point: WalkPoint) {
+    await AsyncStorage.setItem(STORAGE_LAST_LOCATION_KEY, JSON.stringify(point));
+  }
+
+  function getDefaultCenterPoint(): WalkPoint {
+    return {
+      latitude: DEFAULT_CENTER[1],
+      longitude: DEFAULT_CENTER[0],
+      timestamp: Date.now(),
+    };
   }
 
   function moveMapTo(point: WalkPoint) {
@@ -1027,6 +1075,7 @@ export default function Index() {
 
   async function addWalkPoint(newPoint: WalkPoint) {
     setCurrentLocation(newPoint);
+    await saveLastLocation(newPoint);
 
     setPoints((prevPoints) => {
       const lastPoint = prevPoints[prevPoints.length - 1];
@@ -1126,6 +1175,7 @@ export default function Index() {
     setPoints(activeWalk.points);
     setCurrentWalkCells([]);
     setCurrentLocation(firstPoint);
+    await saveLastLocation(firstPoint);
     moveMapTo(firstPoint);
 
     await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
@@ -2341,8 +2391,8 @@ export default function Index() {
         <Camera
           ref={cameraRef}
           initialViewState={{
-            center: currentLocation
-              ? [currentLocation.longitude, currentLocation.latitude]
+            center: mapCenter
+              ? [mapCenter.longitude, mapCenter.latitude]
               : DEFAULT_CENTER,
             zoom: 12,
           }}
