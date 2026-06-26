@@ -295,8 +295,10 @@ export default function Index() {
     null,
   );
   const [mapCenter, setMapCenter] = useState<WalkPoint | null>(null);
-  const [debugMarkerPosition, setDebugMarkerPosition] =
-    useState<WalkPoint | null>(null);
+  const [debugLocationEnabled, setDebugLocationEnabled] = useState(false);
+  const [debugUserLocation, setDebugUserLocation] = useState<WalkPoint | null>(
+    null,
+  );
   const [mapReady, setMapReady] = useState(false);
 
   const [resultModalVisible, setResultModalVisible] = useState(false);
@@ -711,10 +713,26 @@ export default function Index() {
     });
   }
 
-  function moveDebugMarker(deltaLatitude: number, deltaLongitude: number) {
-    setDebugMarkerPosition((previousPosition) => {
+  function getDebugLocationStartPoint() {
+    return currentLocation || mapCenter || getDefaultCenterPoint();
+  }
+
+  function toggleDebugLocation() {
+    setDebugLocationEnabled((wasEnabled) => {
+      if (!wasEnabled) {
+        setDebugUserLocation((previousLocation) => {
+          return previousLocation || getDebugLocationStartPoint();
+        });
+      }
+
+      return !wasEnabled;
+    });
+  }
+
+  function moveDebugUserLocation(deltaLatitude: number, deltaLongitude: number) {
+    setDebugUserLocation((previousPosition) => {
       const basePoint =
-        previousPosition || currentLocation || mapCenter || getDefaultCenterPoint();
+        previousPosition || getDebugLocationStartPoint();
 
       return {
         latitude: basePoint.latitude + deltaLatitude,
@@ -1973,49 +1991,33 @@ export default function Index() {
     };
   }, [points]);
 
+  const displayedUserLocation =
+    debugLocationEnabled && debugUserLocation
+      ? debugUserLocation
+      : currentLocation;
+
   const userGeoJson: MapGeoJsonData = useMemo(() => {
     return {
       type: "FeatureCollection",
-      features: currentLocation
-        ? [
-            {
-              type: "Feature",
-              properties: {},
-              geometry: {
-                type: "Point",
-                coordinates: [
-                  currentLocation.longitude,
-                  currentLocation.latitude,
-                ],
-              },
-            },
-          ]
-        : [],
-    };
-  }, [currentLocation]);
-
-  const debugMarkerGeoJson: MapGeoJsonData = useMemo(() => {
-    return {
-      type: "FeatureCollection",
-      features: debugMarkerPosition
+      features: displayedUserLocation
         ? [
             {
               type: "Feature",
               properties: {
-                label: "TEST",
+                label: debugLocationEnabled ? "TEST" : "",
               },
               geometry: {
                 type: "Point",
                 coordinates: [
-                  debugMarkerPosition.longitude,
-                  debugMarkerPosition.latitude,
+                  displayedUserLocation.longitude,
+                  displayedUserLocation.latitude,
                 ],
               },
             },
           ]
         : [],
     };
-  }, [debugMarkerPosition]);
+  }, [debugLocationEnabled, displayedUserLocation]);
 
 
   if (!profileReady) {
@@ -2187,27 +2189,14 @@ export default function Index() {
             id="user-dot"
             type="circle"
             paint={{
-              "circle-color": accentTheme.color,
-              "circle-radius": 8,
-              "circle-stroke-color": "#FFFFFF",
-              "circle-stroke-width": 3,
-            }}
-          />
-        </GeoJSONSource>
-
-        <GeoJSONSource id="debug-marker-source" data={debugMarkerGeoJson as any}>
-          <Layer
-            id="debug-marker-dot"
-            type="circle"
-            paint={{
-              "circle-color": "#FF4D4D",
-              "circle-radius": 9,
+              "circle-color": debugLocationEnabled ? "#FF4D4D" : accentTheme.color,
+              "circle-radius": debugLocationEnabled ? 10 : 8,
               "circle-stroke-color": "#FFFFFF",
               "circle-stroke-width": 3,
             }}
           />
           <Layer
-            id="debug-marker-label"
+            id="user-debug-label"
             type="symbol"
             layout={{
               "text-field": ["get", "label"],
@@ -2286,11 +2275,13 @@ export default function Index() {
         <Text style={[styles.locateButtonText, { color: accentTheme.color }]}>⌖</Text>
       </TouchableOpacity>
 
-      {/* TEMP DEBUG FEATURE: safe to remove, does not affect real GPS, walks, storage, coverage or statistics. */}
+      {/* TEMP DEBUG FEATURE: joystick only changes displayed debug user location. It does not affect real GPS, walks, storage, coverage or statistics. */}
       <DebugMarkerJoystick
-        onMove={moveDebugMarker}
+        enabled={debugLocationEnabled}
+        onToggle={toggleDebugLocation}
+        onMove={moveDebugUserLocation}
         onReset={() => {
-          setDebugMarkerPosition(currentLocation || mapCenter || getDefaultCenterPoint());
+          setDebugUserLocation(getDebugLocationStartPoint());
         }}
       />
 
@@ -3161,22 +3152,44 @@ export default function Index() {
 }
 
 type DebugMarkerJoystickProps = {
+  enabled: boolean;
+  onToggle: () => void;
   onMove: (deltaLatitude: number, deltaLongitude: number) => void;
   onReset: () => void;
 };
 
-function DebugMarkerJoystick({ onMove, onReset }: DebugMarkerJoystickProps) {
+function DebugMarkerJoystick({
+  enabled,
+  onToggle,
+  onMove,
+  onReset,
+}: DebugMarkerJoystickProps) {
   const step = 0.00018;
+  const moveIfEnabled = (deltaLatitude: number, deltaLongitude: number) => {
+    if (enabled) {
+      onMove(deltaLatitude, deltaLongitude);
+    }
+  };
 
   return (
     <View style={styles.debugJoystickPanel}>
-      <Text style={styles.debugJoystickTitle}>TEST</Text>
+      <TouchableOpacity
+        style={[
+          styles.debugJoystickToggle,
+          enabled ? styles.debugJoystickToggleOn : null,
+        ]}
+        onPress={onToggle}
+      >
+        <Text style={styles.debugJoystickToggleText}>
+          {enabled ? "TEST MODE ON" : "TEST MODE OFF"}
+        </Text>
+      </TouchableOpacity>
 
       <View style={styles.debugJoystickRow}>
         <View style={styles.debugJoystickSpacer} />
         <TouchableOpacity
-          style={styles.debugJoystickButton}
-          onPress={() => onMove(step, 0)}
+          style={[styles.debugJoystickButton, !enabled && styles.debugJoystickButtonOff]}
+          onPress={() => moveIfEnabled(step, 0)}
         >
           <Text style={styles.debugJoystickButtonText}>↑</Text>
         </TouchableOpacity>
@@ -3185,17 +3198,24 @@ function DebugMarkerJoystick({ onMove, onReset }: DebugMarkerJoystickProps) {
 
       <View style={styles.debugJoystickRow}>
         <TouchableOpacity
-          style={styles.debugJoystickButton}
-          onPress={() => onMove(0, -step)}
+          style={[styles.debugJoystickButton, !enabled && styles.debugJoystickButtonOff]}
+          onPress={() => moveIfEnabled(0, -step)}
         >
           <Text style={styles.debugJoystickButtonText}>←</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.debugJoystickReset} onPress={onReset}>
+        <TouchableOpacity
+          style={[styles.debugJoystickReset, !enabled && styles.debugJoystickButtonOff]}
+          onPress={() => {
+            if (enabled) {
+              onReset();
+            }
+          }}
+        >
           <Text style={styles.debugJoystickResetText}>•</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={styles.debugJoystickButton}
-          onPress={() => onMove(0, step)}
+          style={[styles.debugJoystickButton, !enabled && styles.debugJoystickButtonOff]}
+          onPress={() => moveIfEnabled(0, step)}
         >
           <Text style={styles.debugJoystickButtonText}>→</Text>
         </TouchableOpacity>
@@ -3204,8 +3224,8 @@ function DebugMarkerJoystick({ onMove, onReset }: DebugMarkerJoystickProps) {
       <View style={styles.debugJoystickRow}>
         <View style={styles.debugJoystickSpacer} />
         <TouchableOpacity
-          style={styles.debugJoystickButton}
-          onPress={() => onMove(-step, 0)}
+          style={[styles.debugJoystickButton, !enabled && styles.debugJoystickButtonOff]}
+          onPress={() => moveIfEnabled(-step, 0)}
         >
           <Text style={styles.debugJoystickButtonText}>↓</Text>
         </TouchableOpacity>
@@ -3434,19 +3454,31 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 16,
     top: 200,
-    width: 126,
+    width: 138,
     borderRadius: 18,
     padding: 8,
     backgroundColor: "rgba(11, 16, 32, 0.92)",
     borderWidth: 1,
     borderColor: "rgba(255, 77, 77, 0.45)",
   },
-  debugJoystickTitle: {
-    color: "#FFB8B8",
-    fontSize: 10,
+  debugJoystickToggle: {
+    borderRadius: 14,
+    paddingVertical: 7,
+    paddingHorizontal: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.12)",
+    marginBottom: 4,
+  },
+  debugJoystickToggleOn: {
+    backgroundColor: "rgba(255, 77, 77, 0.34)",
+    borderColor: "rgba(255, 77, 77, 0.72)",
+  },
+  debugJoystickToggleText: {
+    color: "#FFFFFF",
+    fontSize: 11,
     fontWeight: "900",
     textAlign: "center",
-    marginBottom: 4,
   },
   debugJoystickRow: {
     flexDirection: "row",
@@ -3467,6 +3499,9 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255, 77, 77, 0.2)",
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.14)",
+  },
+  debugJoystickButtonOff: {
+    opacity: 0.38,
   },
   debugJoystickButtonText: {
     color: "#FFFFFF",
