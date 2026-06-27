@@ -55,6 +55,8 @@ export type ActiveWalkData = {
   distanceKm: number;
 };
 
+export type WalkSessionStatus = "idle" | "active" | "paused";
+
 export type CoverageRoute = {
   id: string;
   points: WalkPoint[];

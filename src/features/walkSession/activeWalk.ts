@@ -3,6 +3,7 @@ import type {
   CoverageRoute,
   WalkHistoryItem,
   WalkPoint,
+  WalkSessionStatus,
 } from "@/features/walkmap/domain";
 import {
   getDistanceKm,
@@ -37,6 +38,12 @@ export type RestoredWalkSession = {
   points: WalkPoint[];
   currentWalkCells: string[];
   lastPoint: WalkPoint | null;
+  status: WalkSessionStatus;
+};
+
+export type WalkSessionRuntimeState = {
+  status: WalkSessionStatus;
+  pausedAt: number | null;
 };
 
 export async function readActiveWalkSession() {
@@ -66,6 +73,7 @@ export function restoreWalkSession(
     points: activeWalk.points,
     currentWalkCells: [],
     lastPoint: activeWalk.points[activeWalk.points.length - 1] || null,
+    status: "active",
   };
 }
 
@@ -103,6 +111,27 @@ export function addPointToActiveWalk(
   activeWalk.currentWalkCells = [];
 
   return activeWalk;
+}
+
+export function pauseWalkSession(
+  state: WalkSessionRuntimeState,
+  pausedAt = Date.now(),
+): WalkSessionRuntimeState {
+  return {
+    ...state,
+    status: "paused",
+    pausedAt,
+  };
+}
+
+export function resumeWalkSession(
+  state: WalkSessionRuntimeState,
+): WalkSessionRuntimeState {
+  return {
+    ...state,
+    status: "active",
+    pausedAt: null,
+  };
 }
 
 export function startWalkSession(startedAt: number, firstPoint: WalkPoint) {
