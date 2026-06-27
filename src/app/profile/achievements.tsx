@@ -5,15 +5,12 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from "react-native";
+import { HeaderBackButton } from "@/components/HeaderBackButton";
 import { getAchievements } from "@/features/achievements/getAchievements";
-import { getAccentTheme } from "@/features/app/theme";
-import {
-  historyRepository,
-  preferencesRepository,
-} from "@/features/storage/repositories";
+import { useAccentTheme } from "@/features/app/accentStore";
+import { historyRepository } from "@/features/storage/repositories";
 import { initializeSQLiteStorage } from "@/features/storage/sqlite/bootstrap";
 import { getProgressStats } from "@/features/statistics/calculations";
 import type { WalkHistoryItem } from "@/features/walkmap/domain";
@@ -22,7 +19,7 @@ export default function ProfileAchievementsScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [history, setHistory] = useState<WalkHistoryItem[]>([]);
-  const [accentId, setAccentId] = useState<string | null>(null);
+  const { accentTheme } = useAccentTheme();
 
   useEffect(() => {
     let mounted = true;
@@ -30,15 +27,11 @@ export default function ProfileAchievementsScreen() {
     async function loadAchievements() {
       try {
         await initializeSQLiteStorage();
-        const [nextHistory, nextAccentId] = await Promise.all([
-          historyRepository.readHistory(),
-          preferencesRepository.readAccentColor(),
-        ]);
+        const nextHistory = await historyRepository.readHistory();
 
         if (!mounted) return;
 
         setHistory(nextHistory);
-        setAccentId(nextAccentId);
       } finally {
         if (mounted) setLoading(false);
       }
@@ -51,7 +44,6 @@ export default function ProfileAchievementsScreen() {
     };
   }, []);
 
-  const accentTheme = getAccentTheme(accentId);
   const achievements = getAchievements(getProgressStats([], history));
   const unlockedAchievements = achievements.filter(
     (achievement) => achievement.isUnlocked,
@@ -68,9 +60,7 @@ export default function ProfileAchievementsScreen() {
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Text style={styles.backButtonText}>‹</Text>
-        </TouchableOpacity>
+        <HeaderBackButton onPress={() => router.back()} />
         <View>
           <Text style={styles.title}>Достижения</Text>
           <Text style={styles.subtitle}>
@@ -123,23 +113,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 18,
     paddingBottom: 16,
-  },
-  backButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-    backgroundColor: "#151C33",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-  },
-  backButtonText: {
-    color: "#FFFFFF",
-    fontSize: 34,
-    lineHeight: 36,
-    fontWeight: "800",
   },
   title: {
     color: "#FFFFFF",

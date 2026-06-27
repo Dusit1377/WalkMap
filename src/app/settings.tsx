@@ -11,17 +11,14 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { HeaderBackButton } from "@/components/HeaderBackButton";
+import { useAccentTheme } from "@/features/app/accentStore";
 import { createLocalProfile, normalizeNickname } from "@/features/app/profile";
-import {
-  ACCENT_THEMES,
-  type AccentThemeId,
-  getAccentTheme,
-} from "@/features/app/theme";
+import { ACCENT_THEMES, type AccentThemeId } from "@/features/app/theme";
 import {
   activeWalkRepository,
   coverageRepository,
   historyRepository,
-  preferencesRepository,
   profileRepository,
   progressRepository,
 } from "@/features/storage/repositories";
@@ -32,29 +29,22 @@ const BACKGROUND_LOCATION_TASK = "walkmap_background_location_task";
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const [accentId, setAccentId] = useState<AccentThemeId>("mint");
+  const { accentId, accentTheme, setAccentTheme } = useAccentTheme();
   const [backgroundRecordingEnabled, setBackgroundRecordingEnabled] =
     useState(false);
   const [profile, setProfile] = useState<LocalProfile | null>(null);
   const [nicknameDraft, setNicknameDraft] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const accentTheme = getAccentTheme(accentId);
-
   useEffect(() => {
     let mounted = true;
 
     async function loadSettings() {
       await initializeSQLiteStorage();
-      const [savedAccent, savedProfile] = await Promise.all([
-        preferencesRepository.readAccentColor(),
-        profileRepository.readProfile(normalizeNickname),
-      ]);
+      const savedProfile = await profileRepository.readProfile(normalizeNickname);
 
       if (!mounted) return;
 
-      const theme = getAccentTheme(savedAccent);
-      setAccentId(theme.id);
       setProfile(savedProfile);
       setNicknameDraft(savedProfile?.nickname ?? "");
       await refreshBackgroundRecordingStatus();
@@ -93,10 +83,8 @@ export default function SettingsScreen() {
   }
 
   async function handleAccentThemeSelect(themeId: AccentThemeId) {
-    setAccentId(themeId);
-
     try {
-      await preferencesRepository.writeAccentColor(themeId);
+      await setAccentTheme(themeId);
     } catch {
       Alert.alert(
         "Не удалось сохранить цвет",
@@ -178,8 +166,7 @@ export default function SettingsScreen() {
     setProfile(null);
     setNicknameDraft("");
     const defaultAccent = ACCENT_THEMES[0].id;
-    setAccentId(defaultAccent);
-    await preferencesRepository.writeAccentColor(defaultAccent);
+    await setAccentTheme(defaultAccent);
   }
 
   async function resetProgressData() {
@@ -193,9 +180,7 @@ export default function SettingsScreen() {
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Text style={styles.backButtonText}>‹</Text>
-        </TouchableOpacity>
+        <HeaderBackButton onPress={() => router.back()} />
         <View>
           <Text style={styles.title}>Настройки</Text>
           <Text style={styles.subtitle}>Профиль и запись прогулок</Text>
@@ -359,23 +344,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 18,
     paddingBottom: 16,
-  },
-  backButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-    backgroundColor: "#151C33",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-  },
-  backButtonText: {
-    color: "#FFFFFF",
-    fontSize: 34,
-    lineHeight: 36,
-    fontWeight: "800",
   },
   title: {
     color: "#FFFFFF",

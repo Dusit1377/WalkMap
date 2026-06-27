@@ -37,6 +37,8 @@ import {
   logRejectedTrackingPoint,
   type TrackingPointSource,
 } from "@/features/location/trackingQuality";
+import { useAccentTheme } from "@/features/app/accentStore";
+import { ACCENT_THEMES } from "@/features/app/theme";
 import {
   getProgressStats,
 } from "@/features/statistics/calculations";
@@ -46,7 +48,6 @@ import {
   historyRepository,
   lastLocationRepository,
   openedCellsRepository,
-  preferencesRepository,
   profileRepository,
   progressRepository,
 } from "@/features/storage/repositories";
@@ -119,12 +120,15 @@ const MAP_STYLE: StyleSpecification = {
   ],
 };
 const UNLOCK_RADIUS_METERS = 48;
-const USER_RADIUS_RING_STEPS = 256;
+const USER_RADIUS_RING_STEPS = 96;
+const COVERAGE_ARC_STEP_METERS = 8;
 const COVERAGE_SAMPLE_STEP_METERS = 10;
 const MAX_COVERAGE_ROUTES_ON_MAP = 350;
 const MAX_COVERAGE_SAMPLE_POINTS = 3200;
+const ACTIVE_ROUTE_VISIBLE_POINTS_LIMIT = 750;
 const ACTIVE_WALK_PERSIST_POINT_BATCH = 3;
 const ACTIVE_WALK_PERSIST_INTERVAL_MS = 10_000;
+const MAP_PERF_LOGGING_ENABLED = false;
 const WEB_MERCATOR_RADIUS_METERS = 6_378_137;
 const FOG_OUTER_RING: [number, number][] = [
   [-180, -85],
@@ -133,52 +137,10 @@ const FOG_OUTER_RING: [number, number][] = [
   [-180, 85],
   [-180, -85],
 ];
-
-const ACCENT_THEMES = [
-  {
-    id: "mint",
-    title: "Бирюзовый",
-    color: "#35E6B7",
-    soft: "rgba(53, 230, 183, 0.16)",
-    border: "rgba(53, 230, 183, 0.34)",
-    foreground: "#06111F",
-  },
-  {
-    id: "blue",
-    title: "Синий",
-    color: "#4D96FF",
-    soft: "rgba(77, 150, 255, 0.16)",
-    border: "rgba(77, 150, 255, 0.34)",
-    foreground: "#FFFFFF",
-  },
-  {
-    id: "violet",
-    title: "Фиолетовый",
-    color: "#9B7CFF",
-    soft: "rgba(155, 124, 255, 0.17)",
-    border: "rgba(155, 124, 255, 0.36)",
-    foreground: "#FFFFFF",
-  },
-  {
-    id: "orange",
-    title: "Оранжевый",
-    color: "#FFB84D",
-    soft: "rgba(255, 184, 77, 0.17)",
-    border: "rgba(255, 184, 77, 0.36)",
-    foreground: "#201204",
-  },
-  {
-    id: "rose",
-    title: "Розовый",
-    color: "#FF6B8A",
-    soft: "rgba(255, 107, 138, 0.17)",
-    border: "rgba(255, 107, 138, 0.36)",
-    foreground: "#FFFFFF",
-  },
-] as const;
-
-type AccentThemeId = (typeof ACCENT_THEMES)[number]["id"];
-type AccentTheme = (typeof ACCENT_THEMES)[number];
+const EMPTY_FEATURE_COLLECTION: MapGeoJsonData = {
+  type: "FeatureCollection",
+  features: [],
+};
 
 const WalkMapClipboard = NativeModules.WalkMapClipboard as
   | { setString?: (text: string) => Promise<void> }
@@ -192,6 +154,39 @@ async function setClipboardText(text: string) {
   }
 
   await WalkMapClipboard.setString(text);
+}
+
+function getRouteCacheEdge(points: WalkPoint[]) {
+  if (points.length === 0) {
+    return "empty";
+  }
+
+  const first = points[0];
+  const last = points[points.length - 1];
+  return [
+    points.length,
+    first.timestamp,
+    last.timestamp,
+    last.latitude.toFixed(5),
+    last.longitude.toFixed(5),
+  ].join(":");
+}
+
+function getCoverageCacheKey(routes: CoverageRoute[], routePoints: WalkPoint[]) {
+  const routeMarker = routes
+    .slice(0, MAX_COVERAGE_ROUTES_ON_MAP)
+    .map((route) => getRouteCacheEdge(route.points))
+    .join("|");
+
+  return `${routeMarker}::active:${getRouteCacheEdge(routePoints)}`;
+}
+
+function logMapPerf(message: string, data: Record<string, number | string>) {
+  if (!MAP_PERF_LOGGING_ENABLED) {
+    return;
+  }
+
+  console.log(`[map-perf] ${message}`, data);
 }
 
 function normalizeNickname(nickname: string) {
@@ -319,7 +314,7 @@ export default function Index() {
   const [profileReady, setProfileReady] = useState(false);
   const [nicknameDraft, setNicknameDraft] = useState("");
   const [nicknameBusy, setNicknameBusy] = useState(false);
-  const [accentThemeId, setAccentThemeId] = useState<AccentThemeId>("mint");
+  const { accentTheme, setAccentTheme } = useAccentTheme();
 
   const cameraRef = useRef<CameraRef | null>(null);
   const locationSubscription = useRef<Location.LocationSubscription | null>(
@@ -334,9 +329,10 @@ export default function Index() {
     pausedAt: null,
   });
   const distanceKmRef = useRef(0);
-  const accentTheme: AccentTheme =
-    ACCENT_THEMES.find((theme) => theme.id === accentThemeId) ??
-    ACCENT_THEMES[0];
+  const coverageGeometryCacheRef = useRef<{
+    key: string;
+    rings: [number, number][][];
+  } | null>(null);
   const userNickname = localProfile?.nickname ?? "Гость";
   const userProfileLabel = "Локальный профиль";
   const userInitial = userNickname.slice(0, 1).toUpperCase();
@@ -351,29 +347,6 @@ export default function Index() {
       void refreshBackgroundRecordingStatus();
     }, []),
   );
-
-  useEffect(() => {
-    let isMounted = true;
-
-    preferencesRepository
-      .readAccentColor()
-      .then((savedAccent) => {
-        if (!isMounted) return;
-
-        const nextTheme = ACCENT_THEMES.find(
-          (theme) => theme.id === savedAccent,
-        );
-
-        if (nextTheme) {
-          setAccentThemeId(nextTheme.id);
-        }
-      })
-      .catch(() => {});
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -527,20 +500,6 @@ export default function Index() {
     }
 
     await action.onPress?.();
-  }
-
-  async function handleAccentThemeSelect(themeId: AccentThemeId) {
-    setAccentThemeId(themeId);
-
-    try {
-      await preferencesRepository.writeAccentColor(themeId);
-    } catch {
-      showAppDialog({
-        title: "Не удалось сохранить цвет",
-        message: "Цвет применён сейчас, но может не сохраниться после перезапуска.",
-        variant: "warning",
-      });
-    }
   }
 
   function handleNicknameDraftChange(value: string) {
@@ -1295,7 +1254,7 @@ export default function Index() {
     await profileRepository.clearProfileSettings();
 
     const defaultAccent = ACCENT_THEMES[0].id;
-    setAccentThemeId(defaultAccent);
+    await setAccentTheme(defaultAccent);
     setLocalProfile(null);
     setNicknameDraft("");
     setProfileReady(true);
@@ -1681,7 +1640,7 @@ export default function Index() {
   function makeArcPoints(center: MercatorPoint, startAngle: number, endAngle: number) {
     const angleLength = endAngle - startAngle;
     const arcLength = Math.max(0, angleLength * UNLOCK_RADIUS_METERS);
-    const steps = Math.max(3, Math.ceil(arcLength / 4));
+    const steps = Math.max(3, Math.ceil(arcLength / COVERAGE_ARC_STEP_METERS));
     const points: MercatorPoint[] = [];
 
     for (let step = 0; step <= steps; step += 1) {
@@ -1918,6 +1877,10 @@ export default function Index() {
   }
 
   function makeOpenedEdgeGeoJson(openedRings: [number, number][][]): MapGeoJsonData {
+    if (openedRings.length === 0) {
+      return EMPTY_FEATURE_COLLECTION;
+    }
+
     return {
       type: "FeatureCollection",
       features: openedRings.map((ring, index) => ({
@@ -1933,20 +1896,22 @@ export default function Index() {
   }
 
   function makeUserRadiusGeoJson(point: WalkPoint | null): MapGeoJsonData {
+    if (!point) {
+      return EMPTY_FEATURE_COLLECTION;
+    }
+
     return {
       type: "FeatureCollection",
-      features: point
-        ? [
-            {
-              type: "Feature" as const,
-              properties: {},
-              geometry: {
+      features: [
+        {
+          type: "Feature" as const,
+          properties: {},
+          geometry: {
               type: "Polygon" as const,
-                coordinates: [makeCircleRing(point, UNLOCK_RADIUS_METERS, USER_RADIUS_RING_STEPS)],
-              },
-            },
-          ]
-        : [],
+            coordinates: [makeCircleRing(point, UNLOCK_RADIUS_METERS, USER_RADIUS_RING_STEPS)],
+          },
+        },
+      ],
     };
   }
 
@@ -1962,15 +1927,43 @@ export default function Index() {
       ?.map(getAchievementById)
       .filter(Boolean) as Achievement[] | undefined;
 
-  const displayRoutePoints = isWalking ? points : [];
+  const displayRoutePoints = useMemo(() => {
+    if (!isWalking) {
+      return [];
+    }
+
+    return points.slice(-ACTIVE_ROUTE_VISIBLE_POINTS_LIMIT);
+  }, [isWalking, points]);
 
   const openedBoundaryRings = useMemo(() => {
-    return makeOpenedRadiusRings(
+    const cacheKey = getCoverageCacheKey(coverageRoutes, displayRoutePoints);
+
+    if (coverageGeometryCacheRef.current?.key === cacheKey) {
+      return coverageGeometryCacheRef.current.rings;
+    }
+
+    const startedAt = Date.now();
+    const rings = makeOpenedRadiusRings(
       coverageRoutes,
       displayRoutePoints,
-      currentLocation,
+      null,
     );
-  }, [coverageRoutes, displayRoutePoints, currentLocation]);
+
+    coverageGeometryCacheRef.current = {
+      key: cacheKey,
+      rings,
+    };
+
+    logMapPerf("coverage", {
+      durationMs: Date.now() - startedAt,
+      rings: rings.length,
+      coverageRoutes: coverageRoutes.length,
+      fullActivePoints: points.length,
+      visibleActivePoints: displayRoutePoints.length,
+    });
+
+    return rings;
+  }, [coverageRoutes, displayRoutePoints, points.length]);
 
   const fogGeoJson = useMemo(() => {
     return makeFogGeoJson(openedBoundaryRings);
@@ -1988,14 +1981,14 @@ export default function Index() {
     return {
       type: "FeatureCollection",
       features:
-        points.length > 1
+        displayRoutePoints.length > 1
           ? [
               {
                 type: "Feature",
                 properties: {},
                 geometry: {
                   type: "LineString",
-                  coordinates: points.map((point) => [
+                  coordinates: displayRoutePoints.map((point) => [
                     point.longitude,
                     point.latitude,
                   ]),
@@ -2004,23 +1997,25 @@ export default function Index() {
             ]
           : [],
     };
-  }, [points]);
+  }, [displayRoutePoints]);
 
   const userGeoJson: MapGeoJsonData = useMemo(() => {
+    if (!currentLocation) {
+      return EMPTY_FEATURE_COLLECTION;
+    }
+
     return {
       type: "FeatureCollection",
-      features: currentLocation
-        ? [
-            {
-              type: "Feature",
-              properties: {},
-              geometry: {
-                type: "Point",
-                coordinates: [currentLocation.longitude, currentLocation.latitude],
-              },
-            },
-          ]
-        : [],
+      features: [
+        {
+          type: "Feature",
+          properties: {},
+          geometry: {
+            type: "Point",
+            coordinates: [currentLocation.longitude, currentLocation.latitude],
+          },
+        },
+      ],
     };
   }, [currentLocation]);
 
