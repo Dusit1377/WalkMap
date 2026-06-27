@@ -7,6 +7,7 @@ import type {
   WalkHistoryItem,
   WalkPoint,
 } from "@/features/walkmap/domain";
+import { appendLocalErrorReport } from "@/features/errorReporting";
 
 const STORAGE_CELLS_KEY = "walkmap_opened_cells";
 const STORAGE_HISTORY_KEY = "walkmap_history";
@@ -83,12 +84,26 @@ export function recordStorageError({
   table?: string;
   itemId?: string;
 }) {
+  const message = getStorageErrorMessage(error);
+
   void appendStorageErrorLog({
     key,
     operation,
-    message: getStorageErrorMessage(error),
+    message,
     timestamp: Date.now(),
     rawLength: raw?.length ?? 0,
+    table,
+    itemId,
+  });
+  void appendLocalErrorReport({
+    source: table ? "sqlite" : "storage",
+    severity: "error",
+    message,
+    operation,
+    storageKey: key,
+    raw,
+    rawLength: raw?.length ?? 0,
+    stack: error instanceof Error ? error.stack : undefined,
     table,
     itemId,
   });
