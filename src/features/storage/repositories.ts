@@ -27,7 +27,22 @@ import {
   writeLocalProfileToStorage,
   writeStorageVersionToStorage,
 } from "@/features/storage/walkmapStorage";
-import { saveHistoryToSQLite } from "@/features/storage/sqlite/historyRepository";
+import {
+  clearActiveWalkFromSQLite,
+  readActiveWalkFromSQLite,
+  saveActiveWalkToSQLite,
+} from "@/features/storage/sqlite/activeWalkRepository";
+import {
+  clearCoverageRoutesFromSQLite,
+  readCoverageRoutesFromSQLite,
+  saveCoverageRoutesToSQLite,
+} from "@/features/storage/sqlite/coverageRepository";
+import {
+  clearHistoryFromSQLite,
+  readHistoryFromSQLite,
+  saveHistoryToSQLite,
+} from "@/features/storage/sqlite/historyRepository";
+import { isAsyncStorageToSQLiteMigrationComplete } from "@/features/storage/sqlite/migrations";
 
 export const preferencesRepository = {
   readAccentColor: readAccentColorFromStorage,
@@ -37,29 +52,58 @@ export const preferencesRepository = {
 };
 
 export const activeWalkRepository = {
-  readActiveWalk: readActiveWalkFromStorage,
-  writeActiveWalk: saveActiveWalkToStorage,
-  clearActiveWalk: removeActiveWalkFromStorage,
+  async readActiveWalk() {
+    const sqliteActiveWalk = await readActiveWalkFromSQLite();
+
+    if (sqliteActiveWalk || (await isAsyncStorageToSQLiteMigrationComplete())) {
+      return sqliteActiveWalk;
+    }
+
+    return readActiveWalkFromStorage();
+  },
+  async writeActiveWalk(activeWalk: ActiveWalkData) {
+    if (!(await saveActiveWalkToSQLite(activeWalk))) {
+      await saveActiveWalkToStorage(activeWalk);
+    }
+  },
+  async clearActiveWalk() {
+    await clearActiveWalkFromSQLite();
+    await removeActiveWalkFromStorage();
+  },
 };
 
 export const historyRepository = {
   async readHistory() {
+    const sqliteHistory = await readHistoryFromSQLite();
+
+    if (sqliteHistory.length > 0 || (await isAsyncStorageToSQLiteMigrationComplete())) {
+      return sqliteHistory;
+    }
+
     return readHistoryFromStorage() as Promise<WalkHistoryItem[]>;
   },
   async writeHistory(nextHistory: WalkHistoryItem[]) {
-    await saveHistoryToStorage(nextHistory);
-
-    try {
-      await saveHistoryToSQLite(nextHistory);
-    } catch {}
+    if (!(await saveHistoryToSQLite(nextHistory))) {
+      await saveHistoryToStorage(nextHistory);
+    }
   },
 };
 
 export const coverageRepository = {
   async readCoverageRoutes() {
+    const sqliteRoutes = await readCoverageRoutesFromSQLite();
+
+    if (sqliteRoutes.length > 0 || (await isAsyncStorageToSQLiteMigrationComplete())) {
+      return sqliteRoutes;
+    }
+
     return readCoverageRoutesFromStorage() as Promise<CoverageRoute[]>;
   },
-  writeCoverageRoutes: saveCoverageRoutesToStorage,
+  async writeCoverageRoutes(nextCoverageRoutes: CoverageRoute[]) {
+    if (!(await saveCoverageRoutesToSQLite(nextCoverageRoutes))) {
+      await saveCoverageRoutesToStorage(nextCoverageRoutes);
+    }
+  },
 };
 
 export const profileRepository = {
@@ -82,7 +126,12 @@ export const openedCellsRepository = {
 };
 
 export const progressRepository = {
-  clearProgressData: removeProgressDataFromStorage,
+  async clearProgressData() {
+    await clearHistoryFromSQLite();
+    await clearActiveWalkFromSQLite();
+    await clearCoverageRoutesFromSQLite();
+    await removeProgressDataFromStorage();
+  },
 };
 
 export type {

@@ -1,5 +1,5 @@
 import { initializeLocalDatabase } from "@/features/storage/sqlite/database";
-import { backfillHistoryToSQLiteFromAsyncStorage } from "@/features/storage/sqlite/historyRepository";
+import { migrateAsyncStoragePayloadsToSQLite } from "@/features/storage/sqlite/migrations";
 import { recordStorageError } from "@/features/storage/walkmapStorage";
 
 export async function initializeSQLiteStorage() {
@@ -16,7 +16,7 @@ export async function initializeSQLiteStorage() {
   }
 
   try {
-    await backfillHistoryToSQLiteFromAsyncStorage();
+    await migrateAsyncStoragePayloadsToSQLite();
   } catch {
     // SQLite is best-effort here; AsyncStorage remains the source of truth.
   }

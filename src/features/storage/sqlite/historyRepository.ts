@@ -138,6 +138,7 @@ async function runSaveHistoryRow(historyItem: WalkHistoryItem) {
 export async function saveHistoryItemToSQLite(historyItem: WalkHistoryItem) {
   try {
     await runSaveHistoryRow(historyItem);
+    return true;
   } catch (error) {
     recordStorageError({
       key: "walkmap_history",
@@ -146,16 +147,79 @@ export async function saveHistoryItemToSQLite(historyItem: WalkHistoryItem) {
       itemId: historyItem.id,
       error,
     });
+    return false;
   }
 }
 
 export async function saveHistoryToSQLite(historyItems: WalkHistoryItem[]) {
-  for (const historyItem of historyItems) {
-    if (!isHistoryItemLike(historyItem)) {
-      continue;
-    }
+  try {
+    const database = await openLocalDatabase();
+    const validHistoryItems = historyItems.filter(isHistoryItemLike);
 
-    await saveHistoryItemToSQLite(historyItem);
+    await database.withTransactionAsync(async () => {
+      await database.runAsync("DELETE FROM walks;");
+
+      for (const historyItem of validHistoryItems) {
+        const row = historyItemToSQLiteRow(historyItem);
+
+        await database.runAsync(
+          `
+            INSERT INTO walks (
+              id,
+              started_at,
+              finished_at,
+              date_text,
+              day_key,
+              distance_km,
+              duration_sec,
+              new_cells,
+              total_cells,
+              achievements_unlocked_json,
+              created_at,
+              updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+          `,
+          row.id,
+          row.started_at,
+          row.finished_at,
+          row.date_text,
+          row.day_key,
+          row.distance_km,
+          row.duration_sec,
+          row.new_cells,
+          row.total_cells,
+          row.achievements_unlocked_json,
+          row.created_at,
+          row.updated_at,
+        );
+      }
+    });
+
+    return true;
+  } catch (error) {
+    recordStorageError({
+      key: "walkmap_history",
+      operation: "sqlite-write-all",
+      table: "walks",
+      error,
+    });
+    return false;
+  }
+}
+
+export async function clearHistoryFromSQLite() {
+  try {
+    const database = await openLocalDatabase();
+    await database.runAsync("DELETE FROM walks;");
+    return true;
+  } catch (error) {
+    recordStorageError({
+      key: "walkmap_history",
+      operation: "sqlite-clear",
+      table: "walks",
+      error,
+    });
+    return false;
   }
 }
 
@@ -216,9 +280,7 @@ export async function countHistoryItemsInSQLite() {
 export async function backfillHistoryToSQLiteFromAsyncStorage() {
   try {
     const historyItems = await readHistoryFromStorage();
-    await saveHistoryToSQLite(
-      historyItems.filter(isHistoryItemLike),
-    );
+    await saveHistoryToSQLite(historyItems.filter(isHistoryItemLike));
   } catch (error) {
     recordStorageError({
       key: "walkmap_history",

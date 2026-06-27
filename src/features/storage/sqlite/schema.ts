@@ -1,5 +1,5 @@
 export const LOCAL_DATABASE_NAME = "walkmap.db";
-export const CURRENT_SQLITE_SCHEMA_VERSION = 2;
+export const CURRENT_SQLITE_SCHEMA_VERSION = 3;
 
 export type SqliteMigration = {
   version: number;
@@ -67,6 +67,28 @@ export const SQLITE_MIGRATIONS: SqliteMigration[] = [
 
       CREATE INDEX IF NOT EXISTS idx_walks_day_key
         ON walks (day_key);
+    `,
+  },
+  {
+    version: 3,
+    name: "add_json_payload_storage",
+    sql: `
+      CREATE TABLE IF NOT EXISTS active_walk_payload (
+        id TEXT PRIMARY KEY NOT NULL,
+        payload_json TEXT NOT NULL,
+        started_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS coverage_route_payloads (
+        id TEXT PRIMARY KEY NOT NULL,
+        payload_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      INSERT OR IGNORE INTO app_metadata (key, value, updated_at)
+      VALUES ('async_storage_to_sqlite_migration', 'pending', 0);
     `,
   },
 ];
