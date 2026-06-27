@@ -15,6 +15,7 @@ const STORAGE_ACTIVE_WALK_KEY = "walkmap_active_walk";
 const STORAGE_COVERAGE_ROUTES_KEY = "walkmap_coverage_routes";
 const STORAGE_ACCENT_COLOR_KEY = "walkmap_accent_color";
 const STORAGE_LOCAL_PROFILE_KEY = "walkmap_local_profile";
+const STORAGE_LOCAL_PROFILE_LOGGED_OUT_KEY = "walkmap_local_profile_logged_out";
 const STORAGE_LAST_LOCATION_KEY = "walkmap_last_location";
 const STORAGE_BATTERY_INSTRUCTION_ACK_KEY = "walkmap_battery_instruction_ack";
 const STORAGE_VERSION_KEY = "walkmap_storage_version";
@@ -197,9 +198,17 @@ export async function readLocalProfileFromStorage(
 
 export async function writeLocalProfileToStorage(profile: LocalProfile) {
   await AsyncStorage.setItem(STORAGE_LOCAL_PROFILE_KEY, JSON.stringify(profile));
+  await AsyncStorage.removeItem(STORAGE_LOCAL_PROFILE_LOGGED_OUT_KEY);
 }
 
 export async function hasLegacyLocalProgressInStorage() {
+  const isLoggedOut =
+    (await safeGetStorageItem(STORAGE_LOCAL_PROFILE_LOGGED_OUT_KEY)) === "true";
+
+  if (isLoggedOut) {
+    return false;
+  }
+
   const savedValues = await Promise.all([
     safeGetStorageItem(STORAGE_CELLS_KEY),
     safeGetStorageItem(STORAGE_HISTORY_KEY),
@@ -382,9 +391,11 @@ export async function removeProgressDataFromStorage() {
 
 export async function removeProfileSettingsFromStorage() {
   await AsyncStorage.removeItem(STORAGE_LOCAL_PROFILE_KEY);
+  await AsyncStorage.removeItem(STORAGE_LOCAL_PROFILE_LOGGED_OUT_KEY);
   await AsyncStorage.removeItem(STORAGE_ACCENT_COLOR_KEY);
 }
 
 export async function removeLocalProfileFromStorage() {
   await AsyncStorage.removeItem(STORAGE_LOCAL_PROFILE_KEY);
+  await AsyncStorage.setItem(STORAGE_LOCAL_PROFILE_LOGGED_OUT_KEY, "true");
 }

@@ -45,6 +45,7 @@ import {
 } from "@/features/location/trackingQuality";
 import { useAccentTheme } from "@/features/app/accentStore";
 import { ACCENT_THEMES } from "@/features/app/theme";
+import { appendLocalErrorReport } from "@/features/errorReporting";
 import {
   getProgressStats,
 } from "@/features/statistics/calculations";
@@ -153,6 +154,155 @@ const EMPTY_FEATURE_COLLECTION: MapGeoJsonData = {
   type: "FeatureCollection",
   features: [],
 };
+
+type MapFallbackOperation =
+  | "coverage-rings"
+  | "live-coverage-rings"
+  | "fog-geojson"
+  | "opened-edge-geojson"
+  | "live-fill-geojson"
+  | "live-edge-geojson"
+  | "user-radius-geojson"
+  | "route-geojson"
+  | "user-geojson";
+
+function getUnknownErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function recordMapFallback(operation: MapFallbackOperation, error: unknown) {
+  void appendLocalErrorReport({
+    source: "app",
+    severity: "warning",
+    message: `Map fallback used: ${getUnknownErrorMessage(error)}`,
+    operation,
+  });
+}
+
+function isValidMapCoordinate(coordinate: unknown): coordinate is [number, number] {
+  return (
+    Array.isArray(coordinate) &&
+    coordinate.length >= 2 &&
+    typeof coordinate[0] === "number" &&
+    typeof coordinate[1] === "number" &&
+    Number.isFinite(coordinate[0]) &&
+    Number.isFinite(coordinate[1]) &&
+    Math.abs(coordinate[0]) <= 180 &&
+    Math.abs(coordinate[1]) <= 90
+  );
+}
+
+function makeClosedMapRing(coordinates: unknown): [number, number][] | null {
+  if (!Array.isArray(coordinates)) {
+    return null;
+  }
+
+  const ring = coordinates.filter(isValidMapCoordinate);
+
+  if (ring.length < 3) {
+    return null;
+  }
+
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+  const closed =
+    first[0] === last[0] && first[1] === last[1]
+      ? ring
+      : [...ring, first];
+
+  return closed.length >= 4 ? closed : null;
+}
+
+function sanitizeGeometry(geometry: any) {
+  if (!geometry || typeof geometry.type !== "string") {
+    return null;
+  }
+
+  if (geometry.type === "Point") {
+    return isValidMapCoordinate(geometry.coordinates)
+      ? { type: "Point", coordinates: geometry.coordinates }
+      : null;
+  }
+
+  if (geometry.type === "LineString") {
+    if (!Array.isArray(geometry.coordinates)) {
+      return null;
+    }
+
+    const coordinates = geometry.coordinates.filter(isValidMapCoordinate);
+    return coordinates.length >= 2
+      ? { type: "LineString", coordinates }
+      : null;
+  }
+
+  if (geometry.type === "Polygon") {
+    if (!Array.isArray(geometry.coordinates)) {
+      return null;
+    }
+
+    const coordinates = geometry.coordinates
+      .map(makeClosedMapRing)
+      .filter(Boolean);
+
+    return coordinates.length > 0
+      ? { type: "Polygon", coordinates }
+      : null;
+  }
+
+  return null;
+}
+
+function sanitizeMapGeoJson(
+  geoJson: MapGeoJsonData,
+  operation: MapFallbackOperation,
+): MapGeoJsonData {
+  try {
+    if (!geoJson || geoJson.type !== "FeatureCollection" || !Array.isArray(geoJson.features)) {
+      throw new Error("Invalid FeatureCollection");
+    }
+
+    const features = geoJson.features
+      .map((feature) => {
+        const geometry = sanitizeGeometry(feature?.geometry);
+
+        if (!geometry) {
+          return null;
+        }
+
+        return {
+          ...feature,
+          type: "Feature",
+          properties: feature?.properties ?? {},
+          geometry,
+        };
+      })
+      .filter(Boolean);
+
+    if (features.length !== geoJson.features.length) {
+      recordMapFallback(operation, new Error("Invalid GeoJSON features dropped"));
+    }
+
+    return {
+      type: "FeatureCollection",
+      features,
+    };
+  } catch (error) {
+    recordMapFallback(operation, error);
+    return EMPTY_FEATURE_COLLECTION;
+  }
+}
+
+function safeBuildMapGeoJson(
+  operation: MapFallbackOperation,
+  build: () => MapGeoJsonData,
+): MapGeoJsonData {
+  try {
+    return sanitizeMapGeoJson(build(), operation);
+  } catch (error) {
+    recordMapFallback(operation, error);
+    return EMPTY_FEATURE_COLLECTION;
+  }
+}
 
 const WalkMapClipboard = NativeModules.WalkMapClipboard as
   | { setString?: (text: string) => Promise<void> }
@@ -406,11 +556,26 @@ export default function Index() {
     void initializeSQLiteStorage();
   }, []);
 
+  async function refreshLocalProfileFromStorage() {
+    const savedProfile = await readLocalProfile();
+    setLocalProfile(savedProfile);
+    setNicknameDraft(savedProfile?.nickname ?? "");
+    setProfileReady(true);
+  }
+
   useFocusEffect(
     useCallback(() => {
       void loadData();
       void refreshBackgroundRecordingStatus();
     }, []),
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (profileReady) {
+        void refreshLocalProfileFromStorage();
+      }
+    }, [profileReady]),
   );
 
   async function routePermissionOnboarding() {
@@ -2140,41 +2305,46 @@ export default function Index() {
   }, [displayRoutePoints, isWalking]);
 
   const openedBoundaryRings = useMemo(() => {
-    const cacheKey = getCoverageCacheKey(coverageRoutes, liveCoveragePreviewPoints);
+    try {
+      const cacheKey = getCoverageCacheKey(coverageRoutes, liveCoveragePreviewPoints);
 
-    if (coverageGeometryCacheRef.current?.key === cacheKey) {
-      return coverageGeometryCacheRef.current.rings;
+      if (coverageGeometryCacheRef.current?.key === cacheKey) {
+        return coverageGeometryCacheRef.current.rings;
+      }
+
+      const startedAt = Date.now();
+      const rings = makeOpenedRadiusRings(
+        coverageRoutes,
+        liveCoveragePreviewPoints,
+        null,
+      );
+
+      coverageGeometryCacheRef.current = {
+        key: cacheKey,
+        rings,
+      };
+
+      logMapPerf("coverage", {
+        durationMs: Date.now() - startedAt,
+        rings: rings.length,
+        coverageRoutes: coverageRoutes.length,
+        fullActivePoints: points.length,
+        visibleActivePoints: liveCoveragePreviewPoints.length,
+      });
+      logLongSessionPerf("coverage-rebuild", {
+        durationMs: Date.now() - startedAt,
+        rings: rings.length,
+        coverageRoutes: coverageRoutes.length,
+        fullActivePoints: activeWalkRef.current?.points.length ?? points.length,
+        memoryPoints: points.length,
+        mapPoints: liveCoveragePreviewPoints.length,
+      });
+
+      return rings;
+    } catch (error) {
+      recordMapFallback("coverage-rings", error);
+      return [];
     }
-
-    const startedAt = Date.now();
-    const rings = makeOpenedRadiusRings(
-      coverageRoutes,
-      liveCoveragePreviewPoints,
-      null,
-    );
-
-    coverageGeometryCacheRef.current = {
-      key: cacheKey,
-      rings,
-    };
-
-    logMapPerf("coverage", {
-      durationMs: Date.now() - startedAt,
-      rings: rings.length,
-      coverageRoutes: coverageRoutes.length,
-      fullActivePoints: points.length,
-      visibleActivePoints: liveCoveragePreviewPoints.length,
-    });
-    logLongSessionPerf("coverage-rebuild", {
-      durationMs: Date.now() - startedAt,
-      rings: rings.length,
-      coverageRoutes: coverageRoutes.length,
-      fullActivePoints: activeWalkRef.current?.points.length ?? points.length,
-      memoryPoints: points.length,
-      mapPoints: liveCoveragePreviewPoints.length,
-    });
-
-    return rings;
   }, [coverageRoutes, liveCoveragePreviewPoints, points.length]);
 
   const liveCoverageBoundaryRings = useMemo(() => {
@@ -2188,51 +2358,66 @@ export default function Index() {
       return liveCoverageGeometryCacheRef.current.rings;
     }
 
-    const rings = makeOpenedRadiusRings([], liveCoveragePreviewPoints, null);
-    liveCoverageGeometryCacheRef.current = { key: cacheKey, rings };
-    return rings;
+    try {
+      const rings = makeOpenedRadiusRings([], liveCoveragePreviewPoints, null);
+      liveCoverageGeometryCacheRef.current = { key: cacheKey, rings };
+      return rings;
+    } catch (error) {
+      recordMapFallback("live-coverage-rings", error);
+      return [];
+    }
   }, [isWalking, liveCoveragePreviewPoints]);
 
   const fogGeoJson = useMemo(() => {
-    return makeFogGeoJson(openedBoundaryRings);
+    return safeBuildMapGeoJson("fog-geojson", () =>
+      makeFogGeoJson(openedBoundaryRings),
+    );
   }, [openedBoundaryRings]);
 
   const openedEdgeGeoJson = useMemo(() => {
-    return makeOpenedEdgeGeoJson(openedBoundaryRings);
+    return safeBuildMapGeoJson("opened-edge-geojson", () =>
+      makeOpenedEdgeGeoJson(openedBoundaryRings),
+    );
   }, [openedBoundaryRings]);
 
   const liveCoverageFillGeoJson = useMemo(() => {
-    return makeOpenedFillGeoJson(liveCoverageBoundaryRings);
+    return safeBuildMapGeoJson("live-fill-geojson", () =>
+      makeOpenedFillGeoJson(liveCoverageBoundaryRings),
+    );
   }, [liveCoverageBoundaryRings]);
 
   const liveCoverageEdgeGeoJson = useMemo(() => {
-    return makeOpenedEdgeGeoJson(liveCoverageBoundaryRings);
+    return safeBuildMapGeoJson("live-edge-geojson", () =>
+      makeOpenedEdgeGeoJson(liveCoverageBoundaryRings),
+    );
   }, [liveCoverageBoundaryRings]);
 
   const userRadiusGeoJson = useMemo(() => {
-    return makeUserRadiusGeoJson(currentLocation);
+    return safeBuildMapGeoJson("user-radius-geojson", () =>
+      makeUserRadiusGeoJson(currentLocation),
+    );
   }, [currentLocation]);
 
   const routeGeoJson: MapGeoJsonData = useMemo(() => {
-    const geoJson: MapGeoJsonData = {
-      type: "FeatureCollection",
-      features:
-        displayRoutePoints.length > 1
-          ? [
-              {
-                type: "Feature",
-                properties: {},
-                geometry: {
-                  type: "LineString",
-                  coordinates: displayRoutePoints.map((point) => [
-                    point.longitude,
-                    point.latitude,
-                  ]),
+    const geoJson = safeBuildMapGeoJson("route-geojson", () => ({
+        type: "FeatureCollection",
+        features:
+          displayRoutePoints.length > 1
+            ? [
+                {
+                  type: "Feature",
+                  properties: {},
+                  geometry: {
+                    type: "LineString",
+                    coordinates: displayRoutePoints.map((point) => [
+                      point.longitude,
+                      point.latitude,
+                    ]),
+                  },
                 },
-              },
-            ]
-          : [],
-    };
+              ]
+            : [],
+      }));
 
     logLongSessionPerf("active-route-geojson", {
       fullPoints: activeWalkRef.current?.points.length ?? points.length,
@@ -2246,23 +2431,25 @@ export default function Index() {
   }, [displayRoutePoints, points.length]);
 
   const userGeoJson: MapGeoJsonData = useMemo(() => {
-    if (!currentLocation) {
-      return EMPTY_FEATURE_COLLECTION;
-    }
+    return safeBuildMapGeoJson("user-geojson", () => {
+      if (!currentLocation) {
+        return EMPTY_FEATURE_COLLECTION;
+      }
 
-    return {
-      type: "FeatureCollection",
-      features: [
-        {
-          type: "Feature",
-          properties: {},
-          geometry: {
-            type: "Point",
-            coordinates: [currentLocation.longitude, currentLocation.latitude],
+      return {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            properties: {},
+            geometry: {
+              type: "Point",
+              coordinates: [currentLocation.longitude, currentLocation.latitude],
+            },
           },
-        },
-      ],
-    };
+        ],
+      };
+    });
   }, [currentLocation]);
 
 

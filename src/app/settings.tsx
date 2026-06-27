@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   Alert,
+  AppState,
   ScrollView,
   StyleSheet,
   Text,
@@ -27,6 +28,52 @@ import { initializeSQLiteStorage } from "@/features/storage/sqlite/bootstrap";
 import type { LocalProfile } from "@/features/walkmap/domain";
 
 const BACKGROUND_LOCATION_TASK = "walkmap_background_location_task";
+
+type SettingsStatusBlockProps = {
+  title: string;
+  subtitle: string;
+  status: string;
+  isReady: boolean;
+  onPress: () => void;
+};
+
+function SettingsStatusBlock({
+  title,
+  subtitle,
+  status,
+  isReady,
+  onPress,
+}: SettingsStatusBlockProps) {
+  return (
+    <TouchableOpacity activeOpacity={0.86} style={styles.card} onPress={onPress}>
+      <View style={styles.rowBetween}>
+        <View style={styles.cardTextBlock}>
+          <Text style={styles.cardTitle}>{title}</Text>
+          <Text style={styles.cardSubtitle}>{subtitle}</Text>
+        </View>
+
+        <View style={styles.statusBadge}>
+          <View
+            style={[
+              styles.statusDot,
+              isReady ? styles.statusDotReady : styles.statusDotOff,
+            ]}
+          />
+          <Text
+            style={[
+              styles.statusBadgeText,
+              isReady ? styles.statusTextReady : styles.statusTextOff,
+            ]}
+          >
+            {status}
+          </Text>
+        </View>
+      </View>
+
+      <Text style={styles.settingsLinkText}>Открыть настройки</Text>
+    </TouchableOpacity>
+  );
+}
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -62,6 +109,18 @@ export default function SettingsScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    const appStateSubscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        void refreshBackgroundRecordingStatus();
+      }
+    });
+
+    return () => {
+      appStateSubscription.remove();
+    };
+  }, []);
+
   async function refreshBackgroundRecordingStatus() {
     try {
       const [foregroundPermission, backgroundPermission, batteryAcknowledged] =
@@ -85,8 +144,8 @@ export default function SettingsScreen() {
         hasStarted
           ? "Активна"
           : isBackgroundReady
-            ? "Готова к прогулке"
-            : "Нужно настроить",
+            ? "Готова"
+            : "Требует настройки",
       );
     } catch {
       setLocationPermissionReady(false);
@@ -107,7 +166,7 @@ export default function SettingsScreen() {
       }
     } finally {
       setBackgroundRecordingEnabled(false);
-      setBackgroundRecordingLabel("Включится во время прогулки");
+      setBackgroundRecordingLabel("Готова");
     }
   }
 
@@ -145,14 +204,11 @@ export default function SettingsScreen() {
   }
 
   function showBatteryHelp() {
-    Alert.alert(
-      "Фоновая запись",
-      "Чтобы WalkMap стабильнее записывал прогулку с заблокированным экраном, разреши геолокацию в фоне и отключи ограничение батареи для приложения в настройках Android.",
-      [
-        { text: "Позже", style: "cancel" },
-        { text: "Открыть настройки", onPress: () => Linking.openSettings() },
-      ],
-    );
+    void Linking.openSettings();
+  }
+
+  function openSystemSettings() {
+    void Linking.openSettings();
   }
 
   function askResetApplication() {
@@ -210,6 +266,16 @@ export default function SettingsScreen() {
     await profileRepository.clearProfile();
     setProfile(null);
     setNicknameDraft("");
+    Alert.alert(
+      "Вы вышли",
+      "Локальный профиль сброшен. Прогулки, история и открытая территория остались на устройстве.",
+      [
+        {
+          text: "ОК",
+          onPress: () => router.replace("/"),
+        },
+      ],
+    );
   }
 
   return (
@@ -270,88 +336,21 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        <View style={styles.card}>
-          <View style={styles.rowBetween}>
-            <View style={styles.cardTextBlock}>
-              <Text style={styles.cardTitle}>Геолокация</Text>
-              <Text style={styles.cardSubtitle}>
-                Нужна, чтобы записывать прогулки и открывать карту вокруг вас.
-              </Text>
-            </View>
-            <View style={styles.statusMeta}>
-              <View
-                style={[
-                  styles.statusDot,
-                  locationPermissionReady
-                    ? { backgroundColor: "#27AE60" }
-                    : styles.statusDotOff,
-                ]}
-              />
-            </View>
-          </View>
-        </View>
+        <SettingsStatusBlock
+          title="Геолокация"
+          subtitle="Нужна, чтобы записывать прогулки и открывать карту вокруг вас."
+          status={locationPermissionReady ? "Включена" : "Не включена"}
+          isReady={locationPermissionReady}
+          onPress={openSystemSettings}
+        />
 
-        <View style={styles.card}>
-          <View style={styles.rowBetween}>
-            <View style={styles.cardTextBlock}>
-              <Text style={styles.cardTitle}>Фоновая запись</Text>
-              <Text style={styles.cardSubtitle}>
-                Помогает продолжать запись прогулки в фоне. Для стабильной
-                работы отключите ограничение батареи.
-              </Text>
-            </View>
-            <View style={styles.backgroundStatusMeta}>
-              <View
-                style={[
-                  styles.statusDot,
-                  backgroundRecordingReady || backgroundRecordingEnabled
-                    ? { backgroundColor: "#27AE60" }
-                    : styles.statusDotOff,
-                ]}
-              />
-              <Text
-                style={[
-                  styles.backgroundStatusText,
-                  backgroundRecordingReady || backgroundRecordingEnabled
-                    ? { color: "#27AE60" }
-                    : styles.backgroundStatusTextOff,
-                ]}
-              >
-                {backgroundRecordingLabel}
-              </Text>
-            </View>
-          </View>
-
-          {!backgroundRecordingReady && !backgroundRecordingEnabled && (
-            <View style={styles.backgroundActionsRow}>
-              <TouchableOpacity
-                style={[
-                  styles.backgroundActionButton,
-                  { backgroundColor: accentTheme.color },
-                ]}
-                onPress={showBatteryHelp}
-              >
-                <Text
-                  style={[
-                    styles.backgroundActionText,
-                    { color: accentTheme.foreground },
-                  ]}
-                >
-                  Настроить
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.backgroundActionButtonSecondary}
-                onPress={refreshBackgroundRecordingStatus}
-              >
-                <Text style={styles.backgroundActionTextSecondary}>
-                  Проверить
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
+        <SettingsStatusBlock
+          title="Фоновая запись"
+          subtitle="Помогает продолжать запись прогулки в фоне. Для стабильной работы отключите ограничение батареи."
+          status={backgroundRecordingLabel}
+          isReady={backgroundRecordingReady || backgroundRecordingEnabled}
+          onPress={showBatteryHelp}
+        />
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Локальный профиль</Text>
@@ -486,6 +485,19 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     marginLeft: 12,
   },
+  statusBadge: {
+    alignItems: "center",
+    backgroundColor: "#10182D",
+    borderColor: "rgba(255,255,255,0.08)",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    flexShrink: 0,
+    justifyContent: "center",
+    minWidth: 118,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
   statusMeta: {
     alignItems: "flex-end",
     justifyContent: "center",
@@ -497,8 +509,29 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     marginRight: 8,
   },
+  statusDotReady: {
+    backgroundColor: "#27AE60",
+  },
   statusDotOff: {
     backgroundColor: "#AAB3D1",
+  },
+  statusBadgeText: {
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "right",
+  },
+  statusTextReady: {
+    color: "#27AE60",
+  },
+  statusTextOff: {
+    color: "#AAB3D1",
+  },
+  settingsLinkText: {
+    color: "#AAB3D1",
+    fontSize: 12,
+    fontWeight: "900",
+    marginTop: 12,
   },
   backgroundStatusText: {
     flexShrink: 1,
