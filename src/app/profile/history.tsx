@@ -106,14 +106,6 @@ export default function ProfileHistoryScreen() {
               {formatTime(item.durationSec)}
             </Text>
           </View>
-          <View style={styles.historyStat}>
-            <Text style={styles.historyStatLabel}>Новые</Text>
-            <Text style={styles.historyStatValue}>-</Text>
-          </View>
-          <View style={styles.historyStat}>
-            <Text style={styles.historyStatLabel}>Всего</Text>
-            <Text style={styles.historyStatValue}>-</Text>
-          </View>
         </View>
 
         {itemAchievements && itemAchievements.length > 0 && (

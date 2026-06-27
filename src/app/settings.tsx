@@ -70,8 +70,8 @@ export default function SettingsScreen() {
         hasStarted
           ? "Активна"
           : backgroundPermission.status === "granted"
-            ? "Неактивна"
-            : "Только при открытом",
+            ? "Включится во время прогулки"
+            : "Нужно разрешение",
       );
     } catch {
       setBackgroundRecordingEnabled(false);
@@ -90,7 +90,7 @@ export default function SettingsScreen() {
       }
     } finally {
       setBackgroundRecordingEnabled(false);
-      setBackgroundRecordingLabel("Неактивна");
+      setBackgroundRecordingLabel("Включится во время прогулки");
     }
   }
 
@@ -428,6 +428,8 @@ const styles = StyleSheet.create({
   backgroundStatusMeta: {
     flexDirection: "row",
     alignItems: "center",
+    flex: 1,
+    justifyContent: "flex-end",
     marginLeft: 12,
   },
   backgroundStatusDot: {
@@ -440,8 +442,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#AAB3D1",
   },
   backgroundStatusText: {
+    flexShrink: 1,
     fontSize: 13,
     fontWeight: "900",
+    textAlign: "right",
   },
   backgroundStatusTextOff: {
     color: "#AAB3D1",

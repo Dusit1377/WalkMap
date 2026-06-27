@@ -16,6 +16,7 @@ const STORAGE_COVERAGE_ROUTES_KEY = "walkmap_coverage_routes";
 const STORAGE_ACCENT_COLOR_KEY = "walkmap_accent_color";
 const STORAGE_LOCAL_PROFILE_KEY = "walkmap_local_profile";
 const STORAGE_LAST_LOCATION_KEY = "walkmap_last_location";
+const STORAGE_BATTERY_INSTRUCTION_ACK_KEY = "walkmap_battery_instruction_ack";
 const STORAGE_VERSION_KEY = "walkmap_storage_version";
 const STORAGE_ERROR_LOG_KEY = "walkmap_storage_error_log";
 const LEGACY_LOCAL_SESSION_KEY = "walkmap_local_session";
@@ -268,6 +269,18 @@ export async function readAccentColorFromStorage() {
 
 export async function saveAccentColorToStorage(themeId: string) {
   await AsyncStorage.setItem(STORAGE_ACCENT_COLOR_KEY, themeId);
+}
+
+export async function readBatteryInstructionAckFromStorage() {
+  await ensureStorageVersionMarker();
+  return (await safeGetStorageItem(STORAGE_BATTERY_INSTRUCTION_ACK_KEY)) === "true";
+}
+
+export async function saveBatteryInstructionAckToStorage(isAcknowledged: boolean) {
+  await AsyncStorage.setItem(
+    STORAGE_BATTERY_INSTRUCTION_ACK_KEY,
+    isAcknowledged ? "true" : "false",
+  );
 }
 
 export async function readStorageVersionFromStorage() {

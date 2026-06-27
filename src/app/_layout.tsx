@@ -12,6 +12,8 @@ export default function TabLayout() {
         <Stack.Screen name="profile/history" />
         <Stack.Screen name="profile/achievements" />
         <Stack.Screen name="settings" />
+        <Stack.Screen name="permissions/location" />
+        <Stack.Screen name="permissions/battery" />
       </Stack>
     </ThemeProvider>
   );

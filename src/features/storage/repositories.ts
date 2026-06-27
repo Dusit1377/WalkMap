@@ -9,6 +9,7 @@ import {
   hasLegacyLocalProgressInStorage,
   readAccentColorFromStorage,
   readActiveWalkFromStorage,
+  readBatteryInstructionAckFromStorage,
   readCoverageRoutesFromStorage,
   readHistoryFromStorage,
   readLastLocationFromStorage,
@@ -21,6 +22,7 @@ import {
   removeProgressDataFromStorage,
   saveAccentColorToStorage,
   saveActiveWalkToStorage,
+  saveBatteryInstructionAckToStorage,
   saveCoverageRoutesToStorage,
   saveHistoryToStorage,
   saveLastLocationToStorage,
@@ -49,6 +51,8 @@ export const preferencesRepository = {
   writeAccentColor: saveAccentColorToStorage,
   readStorageVersion: readStorageVersionFromStorage,
   writeStorageVersion: writeStorageVersionToStorage,
+  readBatteryInstructionAcknowledged: readBatteryInstructionAckFromStorage,
+  writeBatteryInstructionAcknowledged: saveBatteryInstructionAckToStorage,
 };
 
 export const activeWalkRepository = {

@@ -54,6 +54,7 @@ import {
   historyRepository,
   lastLocationRepository,
   openedCellsRepository,
+  preferencesRepository,
   profileRepository,
   progressRepository,
 } from "@/features/storage/repositories";
@@ -133,6 +134,7 @@ const MAX_COVERAGE_ROUTES_ON_MAP = 350;
 const MAX_COVERAGE_SAMPLE_POINTS = 3200;
 const ACTIVE_WALK_MEMORY_POINTS_LIMIT = 750;
 const ACTIVE_ROUTE_VISIBLE_POINTS_LIMIT = 750;
+const LIVE_COVERAGE_PREVIEW_POINTS_LIMIT = 300;
 const ACTIVE_WALK_PERSIST_POINT_BATCH = 3;
 const ACTIVE_WALK_PERSIST_INTERVAL_MS = 10_000;
 const MAP_PERF_LOGGING_ENABLED = false;
@@ -390,6 +392,10 @@ export default function Index() {
     key: string;
     rings: [number, number][][];
   } | null>(null);
+  const liveCoverageGeometryCacheRef = useRef<{
+    key: string;
+    rings: [number, number][][];
+  } | null>(null);
   const backgroundTrackingStateRef =
     useRef<BackgroundTrackingState>("unknown");
   const userNickname = localProfile?.nickname ?? "Гость";
@@ -406,6 +412,32 @@ export default function Index() {
       void refreshBackgroundRecordingStatus();
     }, []),
   );
+
+  async function routePermissionOnboarding() {
+    if (!profileReady || !localProfile) {
+      return;
+    }
+
+    const [foregroundPermission, backgroundPermission] = await Promise.all([
+      Location.getForegroundPermissionsAsync(),
+      Location.getBackgroundPermissionsAsync(),
+    ]);
+
+    if (
+      foregroundPermission.status !== "granted" ||
+      backgroundPermission.status !== "granted"
+    ) {
+      router.replace("/permissions/location");
+      return;
+    }
+
+    const batteryInstructionAcknowledged =
+      await preferencesRepository.readBatteryInstructionAcknowledged();
+
+    if (!batteryInstructionAcknowledged) {
+      router.replace("/permissions/battery");
+    }
+  }
 
   useEffect(() => {
     let isMounted = true;
@@ -460,11 +492,13 @@ export default function Index() {
 
     loadData();
     getInitialLocation();
+    routePermissionOnboarding();
 
     const appStateSubscription = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         syncActiveWalkFromStorage();
         refreshBackgroundRecordingStatus();
+        routePermissionOnboarding();
       }
     });
 
@@ -2055,6 +2089,25 @@ export default function Index() {
     };
   }
 
+  function makeOpenedFillGeoJson(openedRings: [number, number][][]): MapGeoJsonData {
+    if (openedRings.length === 0) {
+      return EMPTY_FEATURE_COLLECTION;
+    }
+
+    return {
+      type: "FeatureCollection",
+      features: openedRings.map((ring, index) => ({
+        type: "Feature" as const,
+        id: index,
+        properties: {},
+        geometry: {
+          type: "Polygon" as const,
+          coordinates: [ring],
+        },
+      })),
+    };
+  }
+
   function makeUserRadiusGeoJson(point: WalkPoint | null): MapGeoJsonData {
     if (!point) {
       return EMPTY_FEATURE_COLLECTION;
@@ -2095,8 +2148,16 @@ export default function Index() {
     return points.slice(-ACTIVE_ROUTE_VISIBLE_POINTS_LIMIT);
   }, [isWalking, points]);
 
+  const liveCoveragePreviewPoints = useMemo(() => {
+    if (!isWalking) {
+      return [];
+    }
+
+    return displayRoutePoints.slice(-LIVE_COVERAGE_PREVIEW_POINTS_LIMIT);
+  }, [displayRoutePoints, isWalking]);
+
   const openedBoundaryRings = useMemo(() => {
-    const cacheKey = getCoverageCacheKey(coverageRoutes, displayRoutePoints);
+    const cacheKey = getCoverageCacheKey(coverageRoutes, liveCoveragePreviewPoints);
 
     if (coverageGeometryCacheRef.current?.key === cacheKey) {
       return coverageGeometryCacheRef.current.rings;
@@ -2105,7 +2166,7 @@ export default function Index() {
     const startedAt = Date.now();
     const rings = makeOpenedRadiusRings(
       coverageRoutes,
-      displayRoutePoints,
+      liveCoveragePreviewPoints,
       null,
     );
 
@@ -2119,7 +2180,7 @@ export default function Index() {
       rings: rings.length,
       coverageRoutes: coverageRoutes.length,
       fullActivePoints: points.length,
-      visibleActivePoints: displayRoutePoints.length,
+      visibleActivePoints: liveCoveragePreviewPoints.length,
     });
     logLongSessionPerf("coverage-rebuild", {
       durationMs: Date.now() - startedAt,
@@ -2127,11 +2188,27 @@ export default function Index() {
       coverageRoutes: coverageRoutes.length,
       fullActivePoints: activeWalkRef.current?.points.length ?? points.length,
       memoryPoints: points.length,
-      mapPoints: displayRoutePoints.length,
+      mapPoints: liveCoveragePreviewPoints.length,
     });
 
     return rings;
-  }, [coverageRoutes, displayRoutePoints, points.length]);
+  }, [coverageRoutes, liveCoveragePreviewPoints, points.length]);
+
+  const liveCoverageBoundaryRings = useMemo(() => {
+    if (!isWalking || liveCoveragePreviewPoints.length === 0) {
+      return [];
+    }
+
+    const cacheKey = getRouteCacheEdge(liveCoveragePreviewPoints);
+
+    if (liveCoverageGeometryCacheRef.current?.key === cacheKey) {
+      return liveCoverageGeometryCacheRef.current.rings;
+    }
+
+    const rings = makeOpenedRadiusRings([], liveCoveragePreviewPoints, null);
+    liveCoverageGeometryCacheRef.current = { key: cacheKey, rings };
+    return rings;
+  }, [isWalking, liveCoveragePreviewPoints]);
 
   const fogGeoJson = useMemo(() => {
     return makeFogGeoJson(openedBoundaryRings);
@@ -2140,6 +2217,14 @@ export default function Index() {
   const openedEdgeGeoJson = useMemo(() => {
     return makeOpenedEdgeGeoJson(openedBoundaryRings);
   }, [openedBoundaryRings]);
+
+  const liveCoverageFillGeoJson = useMemo(() => {
+    return makeOpenedFillGeoJson(liveCoverageBoundaryRings);
+  }, [liveCoverageBoundaryRings]);
+
+  const liveCoverageEdgeGeoJson = useMemo(() => {
+    return makeOpenedEdgeGeoJson(liveCoverageBoundaryRings);
+  }, [liveCoverageBoundaryRings]);
 
   const userRadiusGeoJson = useMemo(() => {
     return makeUserRadiusGeoJson(currentLocation);
@@ -2296,6 +2381,44 @@ export default function Index() {
             }}
           />
         </GeoJSONSource>
+
+        {isWalking && (
+          <GeoJSONSource
+            id="live-coverage-fill-source"
+            data={liveCoverageFillGeoJson as any}
+          >
+            <Layer
+              id="live-coverage-fill"
+              type="fill"
+              paint={{
+                "fill-color": accentTheme.color,
+                "fill-opacity": 0.16,
+                "fill-antialias": true,
+              }}
+            />
+          </GeoJSONSource>
+        )}
+
+        {isWalking && (
+          <GeoJSONSource
+            id="live-coverage-edge-source"
+            data={liveCoverageEdgeGeoJson as any}
+          >
+            <Layer
+              id="live-coverage-edge"
+              type="line"
+              layout={{
+                "line-cap": "round",
+                "line-join": "round",
+              }}
+              paint={{
+                "line-color": accentTheme.color,
+                "line-width": 3,
+                "line-opacity": 0.92,
+              }}
+            />
+          </GeoJSONSource>
+        )}
 
         <GeoJSONSource id="user-radius-source" data={userRadiusGeoJson as any}>
           <Layer
