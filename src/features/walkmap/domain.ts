@@ -43,6 +43,39 @@ export type DailyProgress = {
 
 export type GpsSignalState = "good" | "weak" | "poor" | "lost" | "unknown";
 
+export type TrackingPointSource =
+  | "foreground"
+  | "background"
+  | "restored"
+  | "unknown";
+
+export type BackgroundTrackingState =
+  | "unavailable"
+  | "permissionDenied"
+  | "starting"
+  | "active"
+  | "inactive"
+  | "stoppedBySystem"
+  | "error"
+  | "unknown";
+
+export type WalkPointDiagnostics = {
+  pointsAccepted: number;
+  pointsRejected: number;
+  pointsDelayed: number;
+  pointsFromForeground: number;
+  pointsFromBackground: number;
+  pointsFromRestored: number;
+  pointsFromUnknown: number;
+  lastAcceptedPointAt?: number;
+  lastBackgroundPointAt?: number;
+  lastForegroundPointAt?: number;
+  lastRejectedReason?: string;
+  backgroundTrackingState: BackgroundTrackingState;
+  possibleBackgroundGap: boolean;
+  updatedAt: number;
+};
+
 export type WalkDerivedMetrics = {
   distanceKm: number;
   durationSec: number;
@@ -66,6 +99,7 @@ export type ActiveWalkData = {
   points: WalkPoint[];
   currentWalkCells?: string[];
   distanceKm: number;
+  diagnostics?: WalkPointDiagnostics;
 };
 
 export type WalkSessionStatus = "idle" | "active" | "paused";

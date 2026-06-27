@@ -1,8 +1,8 @@
-import type { WalkPoint } from "@/features/walkmap/domain";
+import type { TrackingPointSource, WalkPoint } from "@/features/walkmap/domain";
 import { getDistanceKm } from "@/features/statistics/distance";
 import { appendLocalErrorReport } from "@/features/errorReporting";
 
-export type TrackingPointSource = "foreground" | "background";
+export type { TrackingPointSource } from "@/features/walkmap/domain";
 
 export type RejectedTrackingPointReason =
   | "invalid_coordinates"

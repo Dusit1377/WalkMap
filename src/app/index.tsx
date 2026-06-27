@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   Achievement,
   ActiveWalkData,
+  BackgroundTrackingState,
   CoverageRoute,
   LocalProfile,
   MapGeoJsonData,
@@ -23,11 +24,16 @@ import {
   addPointToActiveWalk,
   clearActiveWalkSession,
   finishWalkSession,
+  getVisibleWalkPoints,
+  markPossibleBackgroundGap,
   pauseWalkSession,
   readActiveWalkSession,
+  recordAcceptedWalkPoint,
+  recordRejectedWalkPoint,
   restoreWalkSession,
   resumeWalkSession,
   saveActiveWalkSession,
+  setActiveWalkBackgroundTrackingState,
   type RestoredWalkSession,
   type WalkSessionRuntimeState,
   startWalkSession,
@@ -125,10 +131,14 @@ const COVERAGE_ARC_STEP_METERS = 8;
 const COVERAGE_SAMPLE_STEP_METERS = 10;
 const MAX_COVERAGE_ROUTES_ON_MAP = 350;
 const MAX_COVERAGE_SAMPLE_POINTS = 3200;
+const ACTIVE_WALK_MEMORY_POINTS_LIMIT = 750;
 const ACTIVE_ROUTE_VISIBLE_POINTS_LIMIT = 750;
 const ACTIVE_WALK_PERSIST_POINT_BATCH = 3;
 const ACTIVE_WALK_PERSIST_INTERVAL_MS = 10_000;
 const MAP_PERF_LOGGING_ENABLED = false;
+const LONG_SESSION_PROFILING_ENABLED = false;
+const LONG_SESSION_PROFILING_POINT_BATCH = 100;
+const BACKGROUND_GAP_WARNING_MS = 5 * 60 * 1000;
 const WEB_MERCATOR_RADIUS_METERS = 6_378_137;
 const FOG_OUTER_RING: [number, number][] = [
   [-180, -85],
@@ -187,6 +197,39 @@ function logMapPerf(message: string, data: Record<string, number | string>) {
   }
 
   console.log(`[map-perf] ${message}`, data);
+}
+
+function logLongSessionPerf(
+  message: string,
+  data: Record<string, number | string | boolean | null>,
+) {
+  if (!LONG_SESSION_PROFILING_ENABLED) {
+    return;
+  }
+
+  console.log(`[long-session] ${message}`, data);
+}
+
+function getGeoJsonFeatureCount(geoJson: MapGeoJsonData) {
+  return geoJson.features.length;
+}
+
+function getGeoJsonApproxSize(geoJson: MapGeoJsonData) {
+  if (!LONG_SESSION_PROFILING_ENABLED) {
+    return 0;
+  }
+
+  return JSON.stringify(geoJson).length;
+}
+
+function getBackgroundTrackingLabel(state: BackgroundTrackingState) {
+  if (state === "active") return "Активна";
+  if (state === "permissionDenied") return "Только при открытом";
+  if (state === "starting") return "Запускается";
+  if (state === "stoppedBySystem") return "Остановлена системой";
+  if (state === "error") return "Ошибка";
+  if (state === "inactive") return "Неактивна";
+  return "Неизвестно";
 }
 
 function normalizeNickname(nickname: string) {
@@ -259,6 +302,11 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
       });
 
       if (!quality.accepted) {
+        recordRejectedWalkPoint({
+          activeWalk,
+          source: "background",
+          reason: quality.reason,
+        });
         logRejectedTrackingPoint({
           ...quality,
           source: "background",
@@ -268,8 +316,15 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
       }
 
       addPointToActiveWalk(activeWalk, quality.point);
+      recordAcceptedWalkPoint({
+        activeWalk,
+        source: "background",
+        point: quality.point,
+        ageMs: quality.ageMs,
+      });
     });
 
+    setActiveWalkBackgroundTrackingState(activeWalk, "active");
     await saveActiveWalkSession(activeWalk);
   } catch {
     logRejectedTrackingPoint({
@@ -306,6 +361,8 @@ export default function Index() {
   );
   const [backgroundRecordingEnabled, setBackgroundRecordingEnabled] =
     useState(false);
+  const [backgroundTrackingState, setBackgroundTrackingState] =
+    useState<BackgroundTrackingState>("unknown");
   const [appDialog, setAppDialog] = useState<AppDialogData | null>(null);
   const [appDialogCopied, setAppDialogCopied] = useState(false);
   const [lastResult, setLastResult] = useState<WalkHistoryItem | null>(null);
@@ -333,6 +390,8 @@ export default function Index() {
     key: string;
     rings: [number, number][][];
   } | null>(null);
+  const backgroundTrackingStateRef =
+    useRef<BackgroundTrackingState>("unknown");
   const userNickname = localProfile?.nickname ?? "Гость";
   const userProfileLabel = "Локальный профиль";
   const userInitial = userNickname.slice(0, 1).toUpperCase();
@@ -734,13 +793,19 @@ export default function Index() {
     setStartedAt(restoredSession.startedAt);
     setDurationSec(restoredSession.durationSec);
     setDistanceKm(restoredSession.distanceKm);
-    setPoints(restoredSession.points);
+    setPoints(
+      getVisibleWalkPoints(
+        restoredSession.points,
+        ACTIVE_WALK_MEMORY_POINTS_LIMIT,
+      ),
+    );
     setCurrentWalkCells(restoredSession.currentWalkCells);
     activeWalkRef.current = {
       startedAt: restoredSession.startedAt,
       points: restoredSession.points,
       currentWalkCells: restoredSession.currentWalkCells,
       distanceKm: restoredSession.distanceKm,
+      diagnostics: restoredSession.diagnostics,
     };
     lastAcceptedPointRef.current = restoredSession.lastPoint;
     walkSessionStateRef.current = {
@@ -748,10 +813,32 @@ export default function Index() {
       pausedAt: null,
     };
     distanceKmRef.current = restoredSession.distanceKm;
+    markPossibleBackgroundGap(
+      activeWalkRef.current,
+      Date.now(),
+      BACKGROUND_GAP_WARNING_MS,
+    );
+    updateBackgroundTrackingState(
+      activeWalkRef.current?.diagnostics?.possibleBackgroundGap
+        ? "stoppedBySystem"
+        : activeWalkRef.current?.diagnostics?.backgroundTrackingState ??
+            "unknown",
+    );
 
     if (restoredSession.lastPoint) {
       setCurrentLocation(restoredSession.lastPoint);
     }
+
+    logLongSessionPerf("restore-active-walk", {
+      fullPoints: restoredSession.points.length,
+      memoryPoints: Math.min(
+        restoredSession.points.length,
+        ACTIVE_WALK_MEMORY_POINTS_LIMIT,
+      ),
+      distanceKm: restoredSession.distanceKm,
+      possibleBackgroundGap:
+        activeWalkRef.current?.diagnostics?.possibleBackgroundGap ?? false,
+    });
   }
 
   async function persistActiveWalkIfNeeded(force = false) {
@@ -776,7 +863,24 @@ export default function Index() {
     await saveActiveWalkSession(activeWalk);
   }
 
-  function applyAcceptedTrackingPoint(point: WalkPoint) {
+  function updateBackgroundTrackingState(
+    nextState: BackgroundTrackingState,
+    shouldPersist = false,
+  ) {
+    backgroundTrackingStateRef.current = nextState;
+    setBackgroundTrackingState(nextState);
+    setActiveWalkBackgroundTrackingState(activeWalkRef.current, nextState);
+
+    if (shouldPersist) {
+      void persistActiveWalkIfNeeded(true).catch(() => {});
+    }
+  }
+
+  function applyAcceptedTrackingPoint(
+    point: WalkPoint,
+    source: TrackingPointSource,
+    ageMs?: number,
+  ) {
     const activeWalk = activeWalkRef.current;
 
     if (!activeWalk || walkSessionStateRef.current.status === "paused") {
@@ -784,17 +888,41 @@ export default function Index() {
     }
 
     addPointToActiveWalk(activeWalk, point);
-    const nextPoints = [...activeWalk.points];
+    recordAcceptedWalkPoint({
+      activeWalk,
+      source,
+      point,
+      ageMs,
+    });
+    const nextVisiblePoints = getVisibleWalkPoints(
+      activeWalk.points,
+      ACTIVE_WALK_MEMORY_POINTS_LIMIT,
+    );
 
-    lastAcceptedPointRef.current = nextPoints[nextPoints.length - 1] ?? point;
+    lastAcceptedPointRef.current =
+      activeWalk.points[activeWalk.points.length - 1] ?? point;
     distanceKmRef.current = activeWalk.distanceKm;
     pendingAcceptedPointsRef.current += 1;
-    setPoints(nextPoints);
+    setPoints(nextVisiblePoints);
     setDistanceKm(activeWalk.distanceKm);
     setCurrentWalkCells(activeWalk.currentWalkCells ?? []);
     setCurrentLocation(point);
     void saveLastLocation(point).catch(() => {});
     void persistActiveWalkIfNeeded().catch(() => {});
+
+    if (
+      activeWalk.diagnostics &&
+      activeWalk.diagnostics.pointsAccepted % LONG_SESSION_PROFILING_POINT_BATCH ===
+        0
+    ) {
+      logLongSessionPerf("accepted-point-batch", {
+        fullPoints: activeWalk.points.length,
+        memoryPoints: nextVisiblePoints.length,
+        pointsAccepted: activeWalk.diagnostics.pointsAccepted,
+        pointsRejected: activeWalk.diagnostics.pointsRejected,
+        pointsDelayed: activeWalk.diagnostics.pointsDelayed,
+      });
+    }
   }
 
   function handleLocationRejected(
@@ -805,6 +933,14 @@ export default function Index() {
     source: TrackingPointSource,
     operation: string,
   ) {
+    if (activeWalkRef.current) {
+      recordRejectedWalkPoint({
+        activeWalk: activeWalkRef.current,
+        source,
+        reason: result.reason,
+      });
+    }
+
     logRejectedTrackingPoint({
       ...result,
       source,
@@ -823,7 +959,7 @@ export default function Index() {
       return;
     }
 
-    applyAcceptedTrackingPoint(quality.point);
+    applyAcceptedTrackingPoint(quality.point, "foreground", quality.ageMs);
   }
 
   async function startForegroundLiveTracking() {
@@ -893,6 +1029,7 @@ export default function Index() {
     }
 
     setBackgroundRecordingEnabled(false);
+    updateBackgroundTrackingState("inactive");
   }
 
   async function refreshBackgroundRecordingStatus() {
@@ -902,8 +1039,10 @@ export default function Index() {
       );
 
       setBackgroundRecordingEnabled(hasStarted);
+      updateBackgroundTrackingState(hasStarted ? "active" : "inactive");
     } catch {
       setBackgroundRecordingEnabled(false);
+      updateBackgroundTrackingState("unknown");
     }
   }
 
@@ -989,6 +1128,8 @@ export default function Index() {
     lastAcceptedPointRef.current = null;
     pendingAcceptedPointsRef.current = 0;
     lastActiveWalkPersistedAtRef.current = 0;
+    setBackgroundTrackingState("starting");
+    backgroundTrackingStateRef.current = "starting";
     walkSessionStateRef.current = {
       status: "active",
       pausedAt: null,
@@ -1011,6 +1152,9 @@ export default function Index() {
       );
       setIsWalking(false);
       setStartedAt(null);
+      setPoints([]);
+      setBackgroundRecordingEnabled(false);
+      updateBackgroundTrackingState("inactive");
       activeWalkRef.current = null;
       lastAcceptedPointRef.current = null;
       walkSessionStateRef.current = {
@@ -1032,6 +1176,10 @@ export default function Index() {
     const startedSession = startWalkSession(walkStartedAt, firstPoint);
 
     activeWalkRef.current = startedSession.activeWalk;
+    setActiveWalkBackgroundTrackingState(
+      activeWalkRef.current,
+      canRecordInBackground ? "starting" : "permissionDenied",
+    );
     lastAcceptedPointRef.current = firstPoint;
     await saveActiveWalkSession(startedSession.activeWalk);
     lastActiveWalkPersistedAtRef.current = Date.now();
@@ -1051,10 +1199,15 @@ export default function Index() {
       });
       setIsWalking(false);
       setStartedAt(null);
+      activeWalkRef.current = null;
+      lastAcceptedPointRef.current = null;
+      pendingAcceptedPointsRef.current = 0;
+      setPoints([]);
       walkSessionStateRef.current = {
         status: "idle",
         pausedAt: null,
       };
+      await clearActiveWalkSession();
       showAppDialog({
         title: "РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РїСѓСЃС‚РёС‚СЊ GPS",
         message:
@@ -1066,6 +1219,7 @@ export default function Index() {
 
     if (canRecordInBackground) {
       try {
+        updateBackgroundTrackingState("starting", true);
         await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
       accuracy: Location.Accuracy.High,
       distanceInterval: 10,
@@ -1080,6 +1234,7 @@ export default function Index() {
     });
 
         setBackgroundRecordingEnabled(true);
+        updateBackgroundTrackingState("active", true);
       } catch {
         logRejectedTrackingPoint({
           reason: "background_task_error",
@@ -1087,9 +1242,11 @@ export default function Index() {
           operation: "start-background-updates",
         });
         setBackgroundRecordingEnabled(false);
+        updateBackgroundTrackingState("error", true);
       }
     } else {
       setBackgroundRecordingEnabled(false);
+      updateBackgroundTrackingState("permissionDenied", true);
     }
 
     showAppDialog({
@@ -1166,7 +1323,7 @@ export default function Index() {
     setResultModalVisible(true);
     setDurationSec(finishedSession.durationSec);
     setDistanceKm(finishedSession.distanceKm);
-    setPoints(finishedSession.points);
+    setPoints([]);
     setCurrentWalkCells([]);
     distanceKmRef.current = finishedSession.distanceKm;
 
@@ -1176,6 +1333,7 @@ export default function Index() {
 
     setIsWalking(false);
     setStartedAt(null);
+    updateBackgroundTrackingState("inactive");
     activeWalkRef.current = null;
     lastAcceptedPointRef.current = null;
     pendingAcceptedPointsRef.current = 0;
@@ -1239,6 +1397,8 @@ export default function Index() {
     setDistanceKm(0);
     setDurationSec(0);
     setLastResult(null);
+    setBackgroundRecordingEnabled(false);
+    updateBackgroundTrackingState("inactive");
     distanceKmRef.current = 0;
     activeWalkRef.current = null;
     lastAcceptedPointRef.current = null;
@@ -1961,6 +2121,14 @@ export default function Index() {
       fullActivePoints: points.length,
       visibleActivePoints: displayRoutePoints.length,
     });
+    logLongSessionPerf("coverage-rebuild", {
+      durationMs: Date.now() - startedAt,
+      rings: rings.length,
+      coverageRoutes: coverageRoutes.length,
+      fullActivePoints: activeWalkRef.current?.points.length ?? points.length,
+      memoryPoints: points.length,
+      mapPoints: displayRoutePoints.length,
+    });
 
     return rings;
   }, [coverageRoutes, displayRoutePoints, points.length]);
@@ -1978,7 +2146,7 @@ export default function Index() {
   }, [currentLocation]);
 
   const routeGeoJson: MapGeoJsonData = useMemo(() => {
-    return {
+    const geoJson: MapGeoJsonData = {
       type: "FeatureCollection",
       features:
         displayRoutePoints.length > 1
@@ -1997,7 +2165,17 @@ export default function Index() {
             ]
           : [],
     };
-  }, [displayRoutePoints]);
+
+    logLongSessionPerf("active-route-geojson", {
+      fullPoints: activeWalkRef.current?.points.length ?? points.length,
+      memoryPoints: points.length,
+      mapPoints: displayRoutePoints.length,
+      featureCount: getGeoJsonFeatureCount(geoJson),
+      approxBytes: getGeoJsonApproxSize(geoJson),
+    });
+
+    return geoJson;
+  }, [displayRoutePoints, points.length]);
 
   const userGeoJson: MapGeoJsonData = useMemo(() => {
     if (!currentLocation) {
@@ -2277,8 +2455,10 @@ export default function Index() {
             </View>
 
             <View style={[styles.walkStatCard, { borderColor: accentTheme.border }]}>
-              <Text style={styles.statLabel}>Радиус</Text>
-              <Text style={styles.statValue}>{UNLOCK_RADIUS_METERS} м</Text>
+              <Text style={styles.statLabel}>Фон</Text>
+              <Text style={styles.statValueSmall}>
+                {getBackgroundTrackingLabel(backgroundTrackingState)}
+              </Text>
             </View>
           </View>
         )}
@@ -2960,6 +3140,12 @@ const styles = StyleSheet.create({
   statValue: {
     color: "#FFFFFF",
     fontSize: 18,
+    fontWeight: "900",
+  },
+  statValueSmall: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    lineHeight: 16,
     fontWeight: "900",
   },
   dailyCard: {

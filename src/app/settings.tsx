@@ -32,6 +32,8 @@ export default function SettingsScreen() {
   const { accentId, accentTheme, setAccentTheme } = useAccentTheme();
   const [backgroundRecordingEnabled, setBackgroundRecordingEnabled] =
     useState(false);
+  const [backgroundRecordingLabel, setBackgroundRecordingLabel] =
+    useState("Неизвестно");
   const [profile, setProfile] = useState<LocalProfile | null>(null);
   const [nicknameDraft, setNicknameDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -59,12 +61,21 @@ export default function SettingsScreen() {
 
   async function refreshBackgroundRecordingStatus() {
     try {
+      const backgroundPermission = await Location.getBackgroundPermissionsAsync();
       const hasStarted = await Location.hasStartedLocationUpdatesAsync(
         BACKGROUND_LOCATION_TASK,
       );
       setBackgroundRecordingEnabled(hasStarted);
+      setBackgroundRecordingLabel(
+        hasStarted
+          ? "Активна"
+          : backgroundPermission.status === "granted"
+            ? "Неактивна"
+            : "Только при открытом",
+      );
     } catch {
       setBackgroundRecordingEnabled(false);
+      setBackgroundRecordingLabel("Неизвестно");
     }
   }
 
@@ -79,6 +90,7 @@ export default function SettingsScreen() {
       }
     } finally {
       setBackgroundRecordingEnabled(false);
+      setBackgroundRecordingLabel("Неактивна");
     }
   }
 
@@ -255,7 +267,7 @@ export default function SettingsScreen() {
                     : styles.backgroundStatusTextOff,
                 ]}
               >
-                {backgroundRecordingEnabled ? "Включена" : "Выключена"}
+                {backgroundRecordingLabel}
               </Text>
             </View>
           </View>

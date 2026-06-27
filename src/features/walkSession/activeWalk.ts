@@ -1,10 +1,14 @@
 import type {
   ActiveWalkData,
+  BackgroundTrackingState,
   CoverageRoute,
+  TrackingPointSource,
   WalkHistoryItem,
+  WalkPointDiagnostics,
   WalkPoint,
   WalkSessionStatus,
 } from "@/features/walkmap/domain";
+import type { RejectedTrackingPointReason } from "@/features/location/trackingQuality";
 import { getDistanceKm } from "@/features/statistics/distance";
 import {
   getProgressStats,
@@ -13,6 +17,8 @@ import {
 import { activeWalkRepository } from "@/features/storage/repositories";
 
 type ProgressStats = ReturnType<typeof getProgressStats>;
+
+const DELAYED_POINT_AGE_MS = 30_000;
 
 type PrepareFinishedWalkSessionParams = {
   activeWalk: ActiveWalkData | null;
@@ -36,9 +42,11 @@ export type RestoredWalkSession = {
   durationSec: number;
   distanceKm: number;
   points: WalkPoint[];
+  visiblePoints: WalkPoint[];
   currentWalkCells: string[];
   lastPoint: WalkPoint | null;
   status: WalkSessionStatus;
+  diagnostics: WalkPointDiagnostics;
 };
 
 export type WalkSessionRuntimeState = {
@@ -58,6 +66,124 @@ export async function clearActiveWalkSession() {
   await activeWalkRepository.clearActiveWalk();
 }
 
+export function getVisibleWalkPoints(points: WalkPoint[], limit: number) {
+  if (points.length <= limit) {
+    return points;
+  }
+
+  return points.slice(-limit);
+}
+
+export function createWalkDiagnostics(
+  now = Date.now(),
+  backgroundTrackingState: BackgroundTrackingState = "unknown",
+): WalkPointDiagnostics {
+  return {
+    pointsAccepted: 0,
+    pointsRejected: 0,
+    pointsDelayed: 0,
+    pointsFromForeground: 0,
+    pointsFromBackground: 0,
+    pointsFromRestored: 0,
+    pointsFromUnknown: 0,
+    backgroundTrackingState,
+    possibleBackgroundGap: false,
+    updatedAt: now,
+  };
+}
+
+export function ensureWalkDiagnostics(activeWalk: ActiveWalkData) {
+  if (!activeWalk.diagnostics) {
+    activeWalk.diagnostics = createWalkDiagnostics(activeWalk.startedAt);
+  }
+
+  return activeWalk.diagnostics;
+}
+
+export function recordAcceptedWalkPoint({
+  activeWalk,
+  source,
+  point,
+  ageMs,
+}: {
+  activeWalk: ActiveWalkData;
+  source: TrackingPointSource;
+  point: WalkPoint;
+  ageMs?: number;
+}) {
+  const diagnostics = ensureWalkDiagnostics(activeWalk);
+
+  diagnostics.pointsAccepted += 1;
+  diagnostics.lastAcceptedPointAt = point.timestamp;
+  diagnostics.updatedAt = Date.now();
+
+  if (ageMs !== undefined && ageMs > DELAYED_POINT_AGE_MS) {
+    diagnostics.pointsDelayed += 1;
+  }
+
+  if (source === "foreground") {
+    diagnostics.pointsFromForeground += 1;
+    diagnostics.lastForegroundPointAt = point.timestamp;
+  } else if (source === "background") {
+    diagnostics.pointsFromBackground += 1;
+    diagnostics.lastBackgroundPointAt = point.timestamp;
+    diagnostics.possibleBackgroundGap = false;
+  } else if (source === "restored") {
+    diagnostics.pointsFromRestored += 1;
+  } else {
+    diagnostics.pointsFromUnknown += 1;
+  }
+}
+
+export function recordRejectedWalkPoint({
+  activeWalk,
+  source,
+  reason,
+}: {
+  activeWalk: ActiveWalkData;
+  source: TrackingPointSource;
+  reason: RejectedTrackingPointReason;
+}) {
+  const diagnostics = ensureWalkDiagnostics(activeWalk);
+
+  diagnostics.pointsRejected += 1;
+  diagnostics.lastRejectedReason = reason;
+  diagnostics.updatedAt = Date.now();
+
+  void source;
+}
+
+export function setActiveWalkBackgroundTrackingState(
+  activeWalk: ActiveWalkData | null,
+  backgroundTrackingState: BackgroundTrackingState,
+) {
+  if (!activeWalk) {
+    return;
+  }
+
+  const diagnostics = ensureWalkDiagnostics(activeWalk);
+  diagnostics.backgroundTrackingState = backgroundTrackingState;
+  diagnostics.updatedAt = Date.now();
+}
+
+export function markPossibleBackgroundGap(
+  activeWalk: ActiveWalkData | null,
+  now = Date.now(),
+  gapThresholdMs = 5 * 60 * 1000,
+) {
+  const lastBackgroundPointAt = activeWalk?.diagnostics?.lastBackgroundPointAt;
+
+  if (!lastBackgroundPointAt) {
+    return false;
+  }
+
+  const diagnostics = ensureWalkDiagnostics(activeWalk);
+  const hasGap = now - lastBackgroundPointAt > gapThresholdMs;
+  diagnostics.possibleBackgroundGap = hasGap;
+  diagnostics.updatedAt = now;
+  return hasGap;
+}
+
 export function restoreWalkSession(
   activeWalk: ActiveWalkData | null,
   now: number,
@@ -71,9 +197,11 @@ export function restoreWalkSession(
     durationSec: Math.floor((now - activeWalk.startedAt) / 1000),
     distanceKm: activeWalk.distanceKm,
     points: activeWalk.points,
+    visiblePoints: activeWalk.points,
     currentWalkCells: [],
     lastPoint: activeWalk.points[activeWalk.points.length - 1] || null,
     status: "active",
+    diagnostics: ensureWalkDiagnostics(activeWalk),
   };
 }
 
@@ -86,6 +214,14 @@ export function createActiveWalk(
     points: [firstPoint],
     currentWalkCells: [],
     distanceKm: 0,
+    diagnostics: {
+      ...createWalkDiagnostics(startedAt, "inactive"),
+      pointsAccepted: 1,
+      pointsFromForeground: 1,
+      lastAcceptedPointAt: firstPoint.timestamp,
+      lastForegroundPointAt: firstPoint.timestamp,
+      updatedAt: startedAt,
+    },
   };
 }
 

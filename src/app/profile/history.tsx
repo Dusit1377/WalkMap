@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -17,6 +17,16 @@ import { initializeSQLiteStorage } from "@/features/storage/sqlite/bootstrap";
 import { getProgressStats } from "@/features/statistics/calculations";
 import type { Achievement, WalkHistoryItem } from "@/features/walkmap/domain";
 
+const LONG_SESSION_PROFILING_ENABLED = false;
+
+function logHistoryPerf(message: string, data: Record<string, number | string>) {
+  if (!LONG_SESSION_PROFILING_ENABLED) {
+    return;
+  }
+
+  console.log(`[long-session] ${message}`, data);
+}
+
 export default function ProfileHistoryScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -27,6 +37,8 @@ export default function ProfileHistoryScreen() {
     let mounted = true;
 
     async function loadHistory() {
+      const startedAt = Date.now();
+
       try {
         await initializeSQLiteStorage();
         const nextHistory = await historyRepository.readHistory();
@@ -34,6 +46,10 @@ export default function ProfileHistoryScreen() {
         if (!mounted) return;
 
         setHistory(nextHistory);
+        logHistoryPerf("open-history", {
+          historyItems: nextHistory.length,
+          durationMs: Date.now() - startedAt,
+        });
       } finally {
         if (mounted) setLoading(false);
       }
@@ -46,21 +62,26 @@ export default function ProfileHistoryScreen() {
     };
   }, []);
 
-  const achievements = getAchievements(getProgressStats([], history));
+  const achievements = useMemo(
+    () => getAchievements(getProgressStats([], history)),
+    [history],
+  );
 
-  function getAchievementById(id: string) {
-    return achievements.find((achievement) => achievement.id === id);
-  }
+  const achievementsById = useMemo(() => {
+    return new Map(achievements.map((achievement) => [achievement.id, achievement]));
+  }, [achievements]);
 
-  function renderHistoryItem({
+  const keyExtractor = useCallback((item: WalkHistoryItem) => item.id, []);
+
+  const renderHistoryItem = useCallback(({
     item,
     index,
   }: {
     item: WalkHistoryItem;
     index: number;
-  }) {
+  }) => {
     const itemAchievements = item.achievementsUnlocked
-      ?.map(getAchievementById)
+      ?.map((achievementId) => achievementsById.get(achievementId))
       .filter(Boolean) as Achievement[] | undefined;
 
     return (
@@ -102,7 +123,7 @@ export default function ProfileHistoryScreen() {
         )}
       </View>
     );
-  }
+  }, [accentTheme.color, achievementsById, history.length]);
 
   if (loading) {
     return (
@@ -124,7 +145,7 @@ export default function ProfileHistoryScreen() {
 
       <FlatList
         data={history}
-        keyExtractor={(item) => item.id}
+        keyExtractor={keyExtractor}
         renderItem={renderHistoryItem}
         contentContainerStyle={[
           styles.content,
