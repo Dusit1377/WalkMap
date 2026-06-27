@@ -15,7 +15,110 @@ const STORAGE_COVERAGE_ROUTES_KEY = "walkmap_coverage_routes";
 const STORAGE_ACCENT_COLOR_KEY = "walkmap_accent_color";
 const STORAGE_LOCAL_PROFILE_KEY = "walkmap_local_profile";
 const STORAGE_LAST_LOCATION_KEY = "walkmap_last_location";
+const STORAGE_VERSION_KEY = "walkmap_storage_version";
+const STORAGE_ERROR_LOG_KEY = "walkmap_storage_error_log";
 const LEGACY_LOCAL_SESSION_KEY = "walkmap_local_session";
+const CURRENT_STORAGE_VERSION = "1";
+const MAX_STORAGE_ERROR_LOG_ENTRIES = 50;
+
+type StorageErrorLogEntry = {
+  key: string;
+  operation: string;
+  message: string;
+  timestamp: number;
+  rawLength: number;
+};
+
+function getStorageErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function appendStorageErrorLog(entry: StorageErrorLogEntry) {
+  try {
+    const rawLog = await AsyncStorage.getItem(STORAGE_ERROR_LOG_KEY);
+    let previousEntries: StorageErrorLogEntry[] = [];
+
+    if (rawLog) {
+      try {
+        const parsedLog = JSON.parse(rawLog);
+
+        if (Array.isArray(parsedLog)) {
+          previousEntries = parsedLog.filter(
+            (item) =>
+              item &&
+              typeof item.key === "string" &&
+              typeof item.operation === "string" &&
+              typeof item.message === "string" &&
+              typeof item.timestamp === "number" &&
+              typeof item.rawLength === "number",
+          );
+        }
+      } catch {}
+    }
+
+    const nextEntries = [...previousEntries, entry].slice(
+      -MAX_STORAGE_ERROR_LOG_ENTRIES,
+    );
+    await AsyncStorage.setItem(
+      STORAGE_ERROR_LOG_KEY,
+      JSON.stringify(nextEntries),
+    );
+  } catch {}
+}
+
+function logStorageError(
+  key: string,
+  operation: string,
+  error: unknown,
+  raw: string | null,
+) {
+  void appendStorageErrorLog({
+    key,
+    operation,
+    message: getStorageErrorMessage(error),
+    timestamp: Date.now(),
+    rawLength: raw?.length ?? 0,
+  });
+}
+
+function safeParseStorageJson<T>(
+  key: string,
+  raw: string | null,
+  fallback: T,
+  operation = "parse",
+): T {
+  if (!raw) {
+    return fallback;
+  }
+
+  try {
+    return JSON.parse(raw) as T;
+  } catch (error) {
+    logStorageError(key, operation, error, raw);
+    return fallback;
+  }
+}
+
+async function ensureStorageVersionMarker() {
+  try {
+    const version = await AsyncStorage.getItem(STORAGE_VERSION_KEY);
+
+    if (!version) {
+      await AsyncStorage.setItem(STORAGE_VERSION_KEY, CURRENT_STORAGE_VERSION);
+    }
+  } catch (error) {
+    logStorageError(STORAGE_VERSION_KEY, "version-marker", error, null);
+  }
+}
+
+async function safeGetStorageItem(key: string) {
+  try {
+    return await AsyncStorage.getItem(key);
+  } catch (error) {
+    logStorageError(key, "read", error, null);
+    return null;
+  }
+}
 
 function isValidStoredWalkPoint(point: any): point is WalkPoint {
   return (
@@ -31,31 +134,32 @@ function isValidStoredWalkPoint(point: any): point is WalkPoint {
 export async function readLocalProfileFromStorage(
   normalizeNickname: (nickname: string) => string,
 ) {
-  const raw = await AsyncStorage.getItem(STORAGE_LOCAL_PROFILE_KEY);
+  await ensureStorageVersionMarker();
+  const raw = await safeGetStorageItem(STORAGE_LOCAL_PROFILE_KEY);
 
   if (!raw) {
     return null;
   }
 
-  try {
-    const parsed = JSON.parse(raw) as Partial<LocalProfile>;
+  const parsed = safeParseStorageJson<Partial<LocalProfile> | null>(
+    STORAGE_LOCAL_PROFILE_KEY,
+    raw,
+    null,
+  );
 
-    if (!parsed || typeof parsed !== "object") {
-      return null;
-    }
-
-    if (typeof parsed.id !== "string" || typeof parsed.nickname !== "string") {
-      return null;
-    }
-
-    return {
-      id: parsed.id,
-      nickname: normalizeNickname(parsed.nickname),
-      createdAt: Number(parsed.createdAt) || Date.now(),
-    } satisfies LocalProfile;
-  } catch {
+  if (!parsed || typeof parsed !== "object") {
     return null;
   }
+
+  if (typeof parsed.id !== "string" || typeof parsed.nickname !== "string") {
+    return null;
+  }
+
+  return {
+    id: parsed.id,
+    nickname: normalizeNickname(parsed.nickname),
+    createdAt: Number(parsed.createdAt) || Date.now(),
+  } satisfies LocalProfile;
 }
 
 export async function writeLocalProfileToStorage(profile: LocalProfile) {
@@ -64,12 +168,12 @@ export async function writeLocalProfileToStorage(profile: LocalProfile) {
 
 export async function hasLegacyLocalProgressInStorage() {
   const savedValues = await Promise.all([
-    AsyncStorage.getItem(STORAGE_CELLS_KEY),
-    AsyncStorage.getItem(STORAGE_HISTORY_KEY),
-    AsyncStorage.getItem(STORAGE_ACTIVE_WALK_KEY),
-    AsyncStorage.getItem(STORAGE_COVERAGE_ROUTES_KEY),
-    AsyncStorage.getItem(STORAGE_ACCENT_COLOR_KEY),
-    AsyncStorage.getItem(LEGACY_LOCAL_SESSION_KEY),
+    safeGetStorageItem(STORAGE_CELLS_KEY),
+    safeGetStorageItem(STORAGE_HISTORY_KEY),
+    safeGetStorageItem(STORAGE_ACTIVE_WALK_KEY),
+    safeGetStorageItem(STORAGE_COVERAGE_ROUTES_KEY),
+    safeGetStorageItem(STORAGE_ACCENT_COLOR_KEY),
+    safeGetStorageItem(LEGACY_LOCAL_SESSION_KEY),
   ]);
 
   return savedValues.some((value) => value !== null);
@@ -78,32 +182,37 @@ export async function hasLegacyLocalProgressInStorage() {
 export async function readLegacyProfileNicknameFromStorage(
   normalizeNickname: (nickname: string) => string,
 ) {
-  const raw = await AsyncStorage.getItem(LEGACY_LOCAL_SESSION_KEY);
+  const raw = await safeGetStorageItem(LEGACY_LOCAL_SESSION_KEY);
 
   if (!raw) {
     return "Гость";
   }
 
-  try {
-    const parsed = JSON.parse(raw) as { email?: unknown };
+  const parsed = safeParseStorageJson<{ email?: unknown } | null>(
+    LEGACY_LOCAL_SESSION_KEY,
+    raw,
+    null,
+  );
 
-    if (typeof parsed.email !== "string") {
-      return "Гость";
-    }
-
-    const [namePart] = parsed.email.split("@");
-    return normalizeNickname(namePart || parsed.email);
-  } catch {
+  if (!parsed || typeof parsed.email !== "string") {
     return "Гость";
   }
+
+  const [namePart] = parsed.email.split("@");
+  return normalizeNickname(namePart || parsed.email);
 }
 
 export async function readActiveWalkFromStorage() {
-  const savedActiveWalk = await AsyncStorage.getItem(STORAGE_ACTIVE_WALK_KEY);
+  await ensureStorageVersionMarker();
+  const savedActiveWalk = await safeGetStorageItem(STORAGE_ACTIVE_WALK_KEY);
 
   if (!savedActiveWalk) return null;
 
-  const parsedActiveWalk = JSON.parse(savedActiveWalk) as ActiveWalkData;
+  const parsedActiveWalk = safeParseStorageJson<ActiveWalkData | null>(
+    STORAGE_ACTIVE_WALK_KEY,
+    savedActiveWalk,
+    null,
+  );
 
   if (
     !parsedActiveWalk ||
@@ -121,7 +230,8 @@ export async function saveActiveWalkToStorage(activeWalk: ActiveWalkData) {
 }
 
 export async function readAccentColorFromStorage() {
-  return AsyncStorage.getItem(STORAGE_ACCENT_COLOR_KEY);
+  await ensureStorageVersionMarker();
+  return safeGetStorageItem(STORAGE_ACCENT_COLOR_KEY);
 }
 
 export async function saveAccentColorToStorage(themeId: string) {
@@ -129,10 +239,21 @@ export async function saveAccentColorToStorage(themeId: string) {
 }
 
 export async function readStoredWalkData() {
-  const savedCells = await AsyncStorage.getItem(STORAGE_CELLS_KEY);
-  const savedHistory = await AsyncStorage.getItem(STORAGE_HISTORY_KEY);
-  const savedCoverageRoutes = await AsyncStorage.getItem(
+  await ensureStorageVersionMarker();
+  const savedCells = safeParseStorageJson<unknown[]>(
+    STORAGE_CELLS_KEY,
+    await safeGetStorageItem(STORAGE_CELLS_KEY),
+    [],
+  );
+  const savedHistory = safeParseStorageJson<unknown[]>(
+    STORAGE_HISTORY_KEY,
+    await safeGetStorageItem(STORAGE_HISTORY_KEY),
+    [],
+  );
+  const savedCoverageRoutes = safeParseStorageJson<unknown[]>(
     STORAGE_COVERAGE_ROUTES_KEY,
+    await safeGetStorageItem(STORAGE_COVERAGE_ROUTES_KEY),
+    [],
   );
 
   return {
@@ -143,19 +264,22 @@ export async function readStoredWalkData() {
 }
 
 export async function readLastLocationFromStorage() {
-  const savedLocation = await AsyncStorage.getItem(STORAGE_LAST_LOCATION_KEY);
+  await ensureStorageVersionMarker();
+  const savedLocation = await safeGetStorageItem(STORAGE_LAST_LOCATION_KEY);
 
   if (!savedLocation) {
     return null;
   }
 
-  try {
-    const parsedLocation = JSON.parse(savedLocation);
+  const parsedLocation = safeParseStorageJson<unknown>(
+    STORAGE_LAST_LOCATION_KEY,
+    savedLocation,
+    null,
+  );
 
-    if (isValidStoredWalkPoint(parsedLocation)) {
-      return parsedLocation;
-    }
-  } catch {}
+  if (isValidStoredWalkPoint(parsedLocation)) {
+    return parsedLocation;
+  }
 
   return null;
 }

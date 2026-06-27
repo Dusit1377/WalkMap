@@ -555,43 +555,38 @@ export default function Index() {
       const { savedCells, savedHistory, savedCoverageRoutes } =
         await readStoredWalkData();
 
-      if (savedCells) {
-        const parsedCells = JSON.parse(savedCells);
-
-        if (Array.isArray(parsedCells)) {
-          setOpenedCells(
-            parsedCells.filter((cellId) => typeof cellId === "string"),
-          );
-        }
+      if (Array.isArray(savedCells)) {
+        setOpenedCells(
+          savedCells.filter((cellId) => typeof cellId === "string"),
+        );
       }
 
-      if (savedHistory) {
-        const parsedHistory = JSON.parse(savedHistory);
-
-        if (Array.isArray(parsedHistory)) {
-          setHistory(parsedHistory);
-        }
+      if (Array.isArray(savedHistory)) {
+        setHistory(savedHistory as WalkHistoryItem[]);
       }
 
-      if (savedCoverageRoutes) {
-        const parsedCoverageRoutes = JSON.parse(savedCoverageRoutes);
+      if (Array.isArray(savedCoverageRoutes)) {
+        const cleanRoutes = savedCoverageRoutes
+          .filter(
+            (route): route is { id: string; points: unknown[] } => {
+              if (!route || typeof route !== "object") {
+                return false;
+              }
 
-        if (Array.isArray(parsedCoverageRoutes)) {
-          const cleanRoutes = parsedCoverageRoutes
-            .filter(
-              (route) =>
-                route &&
-                typeof route.id === "string" &&
-                Array.isArray(route.points),
-            )
-            .map((route) => ({
-              id: route.id,
-              points: route.points.filter(isValidWalkPoint),
-            }))
-            .filter((route) => route.points.length > 0);
+              const candidate = route as { id?: unknown; points?: unknown };
+              return (
+                typeof candidate.id === "string" &&
+                Array.isArray(candidate.points)
+              );
+            },
+          )
+          .map((route) => ({
+            id: route.id,
+            points: route.points.filter(isValidWalkPoint),
+          }))
+          .filter((route) => route.points.length > 0);
 
-          setCoverageRoutes(cleanRoutes);
-        }
+        setCoverageRoutes(cleanRoutes);
       }
 
       await restoreActiveWalk();
