@@ -1991,33 +1991,47 @@ export default function Index() {
     };
   }, [points]);
 
-  const displayedUserLocation =
-    debugLocationEnabled && debugUserLocation
-      ? debugUserLocation
-      : currentLocation;
-
-  const userGeoJson: MapGeoJsonData = useMemo(() => {
+  const realUserGeoJson: MapGeoJsonData = useMemo(() => {
     return {
       type: "FeatureCollection",
-      features: displayedUserLocation
+      features: currentLocation
         ? [
             {
               type: "Feature",
-              properties: {
-                label: debugLocationEnabled ? "TEST" : "",
-              },
+              properties: {},
               geometry: {
                 type: "Point",
-                coordinates: [
-                  displayedUserLocation.longitude,
-                  displayedUserLocation.latitude,
-                ],
+                coordinates: [currentLocation.longitude, currentLocation.latitude],
               },
             },
           ]
         : [],
     };
-  }, [debugLocationEnabled, displayedUserLocation]);
+  }, [currentLocation]);
+
+  const debugUserGeoJson: MapGeoJsonData = useMemo(() => {
+    return {
+      type: "FeatureCollection",
+      features:
+        debugLocationEnabled && debugUserLocation
+          ? [
+              {
+                type: "Feature",
+                properties: {
+                  label: "TEST",
+                },
+                geometry: {
+                  type: "Point",
+                  coordinates: [
+                    debugUserLocation.longitude,
+                    debugUserLocation.latitude,
+                  ],
+                },
+              },
+            ]
+          : [],
+    };
+  }, [debugLocationEnabled, debugUserLocation]);
 
 
   if (!profileReady) {
@@ -2184,33 +2198,66 @@ export default function Index() {
           />
         </GeoJSONSource>
 
-        <GeoJSONSource id="user-source" data={userGeoJson as any}>
-          <Layer
-            id="user-dot"
-            type="circle"
-            paint={{
-              "circle-color": debugLocationEnabled ? "#FF4D4D" : accentTheme.color,
-              "circle-radius": debugLocationEnabled ? 10 : 8,
-              "circle-stroke-color": "#FFFFFF",
-              "circle-stroke-width": 3,
-            }}
-          />
-          <Layer
-            id="user-debug-label"
-            type="symbol"
-            layout={{
-              "text-field": ["get", "label"],
-              "text-size": 12,
-              "text-offset": [0, 1.45],
-              "text-anchor": "top",
-            }}
-            paint={{
-              "text-color": "#FFFFFF",
-              "text-halo-color": "#0B1020",
-              "text-halo-width": 2,
-            }}
-          />
-        </GeoJSONSource>
+        {!debugLocationEnabled && (
+          <GeoJSONSource id="real-user-source" data={realUserGeoJson as any}>
+            <Layer
+              id="real-user-dot"
+              type="circle"
+              paint={{
+                "circle-color": accentTheme.color,
+                "circle-radius": 8,
+                "circle-stroke-color": "#FFFFFF",
+                "circle-stroke-width": 3,
+              }}
+            />
+          </GeoJSONSource>
+        )}
+
+        {debugLocationEnabled && (
+          <GeoJSONSource
+            id="debug-user-source"
+            key={`debug-user-${debugUserLocation?.latitude ?? "none"}-${debugUserLocation?.longitude ?? "none"}`}
+            data={debugUserGeoJson as any}
+          >
+            <Layer
+              id="debug-user-halo"
+              type="circle"
+              paint={{
+                "circle-color": "#FF4D4D",
+                "circle-radius": 16,
+                "circle-opacity": 0.2,
+                "circle-stroke-color": "#FFFFFF",
+                "circle-stroke-width": 2,
+                "circle-stroke-opacity": 0.7,
+              }}
+            />
+            <Layer
+              id="debug-user-dot"
+              type="circle"
+              paint={{
+                "circle-color": "#FF4D4D",
+                "circle-radius": 9,
+                "circle-stroke-color": "#FFFFFF",
+                "circle-stroke-width": 3,
+              }}
+            />
+            <Layer
+              id="debug-user-label"
+              type="symbol"
+              layout={{
+                "text-field": ["get", "label"],
+                "text-size": 12,
+                "text-offset": [0, 1.7],
+                "text-anchor": "top",
+              }}
+              paint={{
+                "text-color": "#FFFFFF",
+                "text-halo-color": "#0B1020",
+                "text-halo-width": 2,
+              }}
+            />
+          </GeoJSONSource>
+        )}
       </Map>
 
       {!mapReady && (
@@ -2278,6 +2325,7 @@ export default function Index() {
       {/* TEMP DEBUG FEATURE: joystick only changes displayed debug user location. It does not affect real GPS, walks, storage, coverage or statistics. */}
       <DebugMarkerJoystick
         enabled={debugLocationEnabled}
+        debugLocation={debugUserLocation}
         onToggle={toggleDebugLocation}
         onMove={moveDebugUserLocation}
         onReset={() => {
@@ -3153,6 +3201,7 @@ export default function Index() {
 
 type DebugMarkerJoystickProps = {
   enabled: boolean;
+  debugLocation: WalkPoint | null;
   onToggle: () => void;
   onMove: (deltaLatitude: number, deltaLongitude: number) => void;
   onReset: () => void;
@@ -3160,11 +3209,12 @@ type DebugMarkerJoystickProps = {
 
 function DebugMarkerJoystick({
   enabled,
+  debugLocation,
   onToggle,
   onMove,
   onReset,
 }: DebugMarkerJoystickProps) {
-  const step = 0.00018;
+  const step = 0.0003;
   const moveIfEnabled = (deltaLatitude: number, deltaLongitude: number) => {
     if (enabled) {
       onMove(deltaLatitude, deltaLongitude);
@@ -3184,6 +3234,17 @@ function DebugMarkerJoystick({
           {enabled ? "TEST MODE ON" : "TEST MODE OFF"}
         </Text>
       </TouchableOpacity>
+
+      {enabled && debugLocation ? (
+        <View style={styles.debugCoordinatesBox}>
+          <Text style={styles.debugCoordinatesText}>
+            lat {debugLocation.latitude.toFixed(6)}
+          </Text>
+          <Text style={styles.debugCoordinatesText}>
+            lon {debugLocation.longitude.toFixed(6)}
+          </Text>
+        </View>
+      ) : null}
 
       <View style={styles.debugJoystickRow}>
         <View style={styles.debugJoystickSpacer} />
@@ -3479,6 +3540,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "900",
     textAlign: "center",
+  },
+  debugCoordinatesBox: {
+    paddingVertical: 5,
+    paddingHorizontal: 7,
+    borderRadius: 10,
+    backgroundColor: "rgba(255, 255, 255, 0.07)",
+    marginTop: 4,
+    marginBottom: 2,
+  },
+  debugCoordinatesText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "700",
+    lineHeight: 13,
   },
   debugJoystickRow: {
     flexDirection: "row",
