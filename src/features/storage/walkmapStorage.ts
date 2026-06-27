@@ -238,23 +238,46 @@ export async function saveAccentColorToStorage(themeId: string) {
   await AsyncStorage.setItem(STORAGE_ACCENT_COLOR_KEY, themeId);
 }
 
-export async function readStoredWalkData() {
+export async function readStorageVersionFromStorage() {
   await ensureStorageVersionMarker();
-  const savedCells = safeParseStorageJson<unknown[]>(
-    STORAGE_CELLS_KEY,
-    await safeGetStorageItem(STORAGE_CELLS_KEY),
-    [],
-  );
-  const savedHistory = safeParseStorageJson<unknown[]>(
+  return safeGetStorageItem(STORAGE_VERSION_KEY);
+}
+
+export async function writeStorageVersionToStorage(version: string) {
+  await AsyncStorage.setItem(STORAGE_VERSION_KEY, version);
+}
+
+export async function readHistoryFromStorage() {
+  await ensureStorageVersionMarker();
+  return safeParseStorageJson<unknown[]>(
     STORAGE_HISTORY_KEY,
     await safeGetStorageItem(STORAGE_HISTORY_KEY),
     [],
   );
-  const savedCoverageRoutes = safeParseStorageJson<unknown[]>(
+}
+
+export async function readCoverageRoutesFromStorage() {
+  await ensureStorageVersionMarker();
+  return safeParseStorageJson<unknown[]>(
     STORAGE_COVERAGE_ROUTES_KEY,
     await safeGetStorageItem(STORAGE_COVERAGE_ROUTES_KEY),
     [],
   );
+}
+
+export async function readOpenedCellsFromStorage() {
+  await ensureStorageVersionMarker();
+  return safeParseStorageJson<unknown[]>(
+    STORAGE_CELLS_KEY,
+    await safeGetStorageItem(STORAGE_CELLS_KEY),
+    [],
+  );
+}
+
+export async function readStoredWalkData() {
+  const savedCells = await readOpenedCellsFromStorage();
+  const savedHistory = await readHistoryFromStorage();
+  const savedCoverageRoutes = await readCoverageRoutesFromStorage();
 
   return {
     savedCells,

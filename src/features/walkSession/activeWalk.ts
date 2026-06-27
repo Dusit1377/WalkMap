@@ -9,11 +9,7 @@ import {
   getProgressStats,
   getTodayKey,
 } from "@/features/statistics/calculations";
-import {
-  readActiveWalkFromStorage,
-  removeActiveWalkFromStorage,
-  saveActiveWalkToStorage,
-} from "@/features/storage/walkmapStorage";
+import { activeWalkRepository } from "@/features/storage/repositories";
 
 type ProgressStats = ReturnType<typeof getProgressStats>;
 
@@ -44,15 +40,15 @@ export type RestoredWalkSession = {
 };
 
 export async function readActiveWalkSession() {
-  return readActiveWalkFromStorage();
+  return activeWalkRepository.readActiveWalk();
 }
 
 export async function saveActiveWalkSession(activeWalk: ActiveWalkData) {
-  await saveActiveWalkToStorage(activeWalk);
+  await activeWalkRepository.writeActiveWalk(activeWalk);
 }
 
 export async function clearActiveWalkSession() {
-  await removeActiveWalkFromStorage();
+  await activeWalkRepository.clearActiveWalk();
 }
 
 export function restoreWalkSession(

@@ -32,20 +32,14 @@ import {
   getProgressStats,
 } from "@/features/statistics/calculations";
 import {
-  hasLegacyLocalProgressInStorage,
-  readAccentColorFromStorage,
-  readLastLocationFromStorage,
-  readLegacyProfileNicknameFromStorage,
-  readLocalProfileFromStorage,
-  readStoredWalkData,
-  removeProfileSettingsFromStorage,
-  removeProgressDataFromStorage,
-  saveAccentColorToStorage,
-  saveCoverageRoutesToStorage,
-  saveHistoryToStorage,
-  saveLastLocationToStorage,
-  writeLocalProfileToStorage,
-} from "@/features/storage/walkmapStorage";
+  coverageRepository,
+  historyRepository,
+  lastLocationRepository,
+  openedCellsRepository,
+  preferencesRepository,
+  profileRepository,
+  progressRepository,
+} from "@/features/storage/repositories";
 import {
   ActivityIndicator,
   AppState,
@@ -201,19 +195,19 @@ function createLocalProfile(nickname: string): LocalProfile {
 }
 
 async function readLocalProfile() {
-  return readLocalProfileFromStorage(normalizeNickname);
+  return profileRepository.readProfile(normalizeNickname);
 }
 
 async function writeLocalProfile(profile: LocalProfile) {
-  await writeLocalProfileToStorage(profile);
+  await profileRepository.writeProfile(profile);
 }
 
 async function hasLegacyLocalProgress() {
-  return hasLegacyLocalProgressInStorage();
+  return profileRepository.hasLegacyLocalProgress();
 }
 
 async function readLegacyProfileNickname() {
-  return readLegacyProfileNicknameFromStorage(normalizeNickname);
+  return profileRepository.readLegacyProfileNickname(normalizeNickname);
 }
 
 TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
@@ -306,7 +300,8 @@ export default function Index() {
   useEffect(() => {
     let isMounted = true;
 
-    readAccentColorFromStorage()
+    preferencesRepository
+      .readAccentColor()
       .then((savedAccent) => {
         if (!isMounted) return;
 
@@ -484,7 +479,7 @@ export default function Index() {
     setAccentThemeId(themeId);
 
     try {
-      await saveAccentColorToStorage(themeId);
+      await preferencesRepository.writeAccentColor(themeId);
     } catch {
       showAppDialog({
         title: "Не удалось сохранить цвет",
@@ -552,8 +547,12 @@ export default function Index() {
 
   async function loadData() {
     try {
-      const { savedCells, savedHistory, savedCoverageRoutes } =
-        await readStoredWalkData();
+      const [savedCells, savedHistory, savedCoverageRoutes] =
+        await Promise.all([
+          openedCellsRepository.readOpenedCells(),
+          historyRepository.readHistory(),
+          coverageRepository.readCoverageRoutes(),
+        ]);
 
       if (Array.isArray(savedCells)) {
         setOpenedCells(
@@ -568,17 +567,10 @@ export default function Index() {
       if (Array.isArray(savedCoverageRoutes)) {
         const cleanRoutes = savedCoverageRoutes
           .filter(
-            (route): route is { id: string; points: unknown[] } => {
-              if (!route || typeof route !== "object") {
-                return false;
-              }
-
-              const candidate = route as { id?: unknown; points?: unknown };
-              return (
-                typeof candidate.id === "string" &&
-                Array.isArray(candidate.points)
-              );
-            },
+            (route) =>
+              route &&
+              typeof route.id === "string" &&
+              Array.isArray(route.points),
           )
           .map((route) => ({
             id: route.id,
@@ -640,11 +632,11 @@ export default function Index() {
   }
 
   async function readLastLocation() {
-    return readLastLocationFromStorage();
+    return lastLocationRepository.readLastLocation();
   }
 
   async function saveLastLocation(point: WalkPoint) {
-    await saveLastLocationToStorage(point);
+    await lastLocationRepository.writeLastLocation(point);
   }
 
   function getDefaultCenterPoint(): WalkPoint {
@@ -672,11 +664,11 @@ export default function Index() {
   }
 
   async function saveHistory(nextHistory: WalkHistoryItem[]) {
-    await saveHistoryToStorage(nextHistory);
+    await historyRepository.writeHistory(nextHistory);
   }
 
   async function saveCoverageRoutes(nextCoverageRoutes: CoverageRoute[]) {
-    await saveCoverageRoutesToStorage(nextCoverageRoutes);
+    await coverageRepository.writeCoverageRoutes(nextCoverageRoutes);
   }
 
   function isValidWalkPoint(point: any): point is WalkPoint {
@@ -1025,7 +1017,7 @@ export default function Index() {
 
     await stopBackgroundLocation();
 
-    await removeProgressDataFromStorage();
+    await progressRepository.clearProgressData();
 
     setIsWalking(false);
     setStartedAt(null);
@@ -1042,7 +1034,7 @@ export default function Index() {
 
   async function resetApplication() {
     await resetData();
-    await removeProfileSettingsFromStorage();
+    await profileRepository.clearProfileSettings();
 
     const defaultAccent = ACCENT_THEMES[0].id;
     setAccentThemeId(defaultAccent);
