@@ -22,7 +22,10 @@ let localDatabasePromise: Promise<SQLiteDatabase> | null = null;
 
 export function openLocalDatabase() {
   if (!localDatabasePromise) {
-    localDatabasePromise = openDatabaseAsync(LOCAL_DATABASE_NAME);
+    localDatabasePromise = openDatabaseAsync(LOCAL_DATABASE_NAME).catch((error) => {
+      localDatabasePromise = null;
+      throw error;
+    });
   }
 
   return localDatabasePromise;

@@ -40,7 +40,7 @@ import {
   profileRepository,
   progressRepository,
 } from "@/features/storage/repositories";
-import { initializeLocalDatabase } from "@/features/storage/sqlite/database";
+import { initializeSQLiteStorage } from "@/features/storage/sqlite/bootstrap";
 import {
   ActivityIndicator,
   AppState,
@@ -299,7 +299,7 @@ export default function Index() {
   const userInitial = userNickname.slice(0, 1).toUpperCase();
 
   useEffect(() => {
-    void initializeLocalDatabase();
+    void initializeSQLiteStorage();
   }, []);
 
   useEffect(() => {

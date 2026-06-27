@@ -27,6 +27,7 @@ import {
   writeLocalProfileToStorage,
   writeStorageVersionToStorage,
 } from "@/features/storage/walkmapStorage";
+import { saveHistoryToSQLite } from "@/features/storage/sqlite/historyRepository";
 
 export const preferencesRepository = {
   readAccentColor: readAccentColorFromStorage,
@@ -45,7 +46,13 @@ export const historyRepository = {
   async readHistory() {
     return readHistoryFromStorage() as Promise<WalkHistoryItem[]>;
   },
-  writeHistory: saveHistoryToStorage,
+  async writeHistory(nextHistory: WalkHistoryItem[]) {
+    await saveHistoryToStorage(nextHistory);
+
+    try {
+      await saveHistoryToSQLite(nextHistory);
+    } catch {}
+  },
 };
 
 export const coverageRepository = {

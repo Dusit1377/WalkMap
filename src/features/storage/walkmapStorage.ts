@@ -27,6 +27,8 @@ type StorageErrorLogEntry = {
   message: string;
   timestamp: number;
   rawLength: number;
+  table?: string;
+  itemId?: string;
 };
 
 function getStorageErrorMessage(error: unknown) {
@@ -66,18 +68,29 @@ async function appendStorageErrorLog(entry: StorageErrorLogEntry) {
   } catch {}
 }
 
-function logStorageError(
-  key: string,
-  operation: string,
-  error: unknown,
-  raw: string | null,
-) {
+export function recordStorageError({
+  key,
+  operation,
+  error,
+  raw,
+  table,
+  itemId,
+}: {
+  key: string;
+  operation: string;
+  error: unknown;
+  raw?: string | null;
+  table?: string;
+  itemId?: string;
+}) {
   void appendStorageErrorLog({
     key,
     operation,
     message: getStorageErrorMessage(error),
     timestamp: Date.now(),
     rawLength: raw?.length ?? 0,
+    table,
+    itemId,
   });
 }
 
@@ -94,7 +107,7 @@ function safeParseStorageJson<T>(
   try {
     return JSON.parse(raw) as T;
   } catch (error) {
-    logStorageError(key, operation, error, raw);
+    recordStorageError({ key, operation, error, raw });
     return fallback;
   }
 }
@@ -107,7 +120,11 @@ async function ensureStorageVersionMarker() {
       await AsyncStorage.setItem(STORAGE_VERSION_KEY, CURRENT_STORAGE_VERSION);
     }
   } catch (error) {
-    logStorageError(STORAGE_VERSION_KEY, "version-marker", error, null);
+    recordStorageError({
+      key: STORAGE_VERSION_KEY,
+      operation: "version-marker",
+      error,
+    });
   }
 }
 
@@ -115,7 +132,7 @@ async function safeGetStorageItem(key: string) {
   try {
     return await AsyncStorage.getItem(key);
   } catch (error) {
-    logStorageError(key, "read", error, null);
+    recordStorageError({ key, operation: "read", error });
     return null;
   }
 }

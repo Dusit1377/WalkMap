@@ -1,5 +1,5 @@
 export const LOCAL_DATABASE_NAME = "walkmap.db";
-export const CURRENT_SQLITE_SCHEMA_VERSION = 1;
+export const CURRENT_SQLITE_SCHEMA_VERSION = 2;
 
 export type SqliteMigration = {
   version: number;
@@ -53,6 +53,20 @@ export const SQLITE_MIGRATIONS: SqliteMigration[] = [
 
       CREATE INDEX IF NOT EXISTS idx_coverage_routes_created_at
         ON coverage_routes (created_at);
+    `,
+  },
+  {
+    version: 2,
+    name: "add_walk_history_columns",
+    sql: `
+      ALTER TABLE walks ADD COLUMN date_text TEXT NOT NULL DEFAULT '';
+      ALTER TABLE walks ADD COLUMN day_key TEXT;
+      ALTER TABLE walks ADD COLUMN new_cells INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE walks ADD COLUMN total_cells INTEGER;
+      ALTER TABLE walks ADD COLUMN achievements_unlocked_json TEXT NOT NULL DEFAULT '[]';
+
+      CREATE INDEX IF NOT EXISTS idx_walks_day_key
+        ON walks (day_key);
     `,
   },
 ];
