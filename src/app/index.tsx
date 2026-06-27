@@ -19,7 +19,12 @@ import type {
 } from "@/features/walkmap/domain";
 import {
   addPointToActiveWalk,
+  clearActiveWalkSession,
   finishWalkSession,
+  readActiveWalkSession,
+  restoreWalkSession,
+  saveActiveWalkSession,
+  type RestoredWalkSession,
   startWalkSession,
 } from "@/features/walkSession/activeWalk";
 import {
@@ -29,16 +34,13 @@ import {
 import {
   hasLegacyLocalProgressInStorage,
   readAccentColorFromStorage,
-  readActiveWalkFromStorage,
   readLastLocationFromStorage,
   readLegacyProfileNicknameFromStorage,
   readLocalProfileFromStorage,
   readStoredWalkData,
-  removeActiveWalkFromStorage,
   removeProfileSettingsFromStorage,
   removeProgressDataFromStorage,
   saveAccentColorToStorage,
-  saveActiveWalkToStorage,
   saveCoverageRoutesToStorage,
   saveHistoryToStorage,
   saveLastLocationToStorage,
@@ -240,7 +242,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
   }
 
   try {
-    const activeWalk = await readActiveWalkFromStorage();
+    const activeWalk = await readActiveWalkSession();
 
     if (!activeWalk) {
       return;
@@ -256,7 +258,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
       addPointToActiveWalk(activeWalk, newPoint);
     });
 
-    await saveActiveWalkToStorage(activeWalk);
+    await saveActiveWalkSession(activeWalk);
   } catch {
     // Фоновая задача не должна ломать приложение из-за одной неудачной записи.
   }
@@ -743,51 +745,56 @@ export default function Index() {
     return thinned;
   }
 
-  async function restoreActiveWalk() {
-    const activeWalk = await readActiveWalkFromStorage();
+  function applyRestoredWalkSession(
+    restoredSession: RestoredWalkSession,
+    shouldMarkWalking: boolean,
+  ) {
+    if (shouldMarkWalking) {
+      setIsWalking(true);
+    }
 
-    if (!activeWalk) {
+    setStartedAt(restoredSession.startedAt);
+    setDurationSec(restoredSession.durationSec);
+    setDistanceKm(restoredSession.distanceKm);
+    setPoints(restoredSession.points);
+    setCurrentWalkCells(restoredSession.currentWalkCells);
+    distanceKmRef.current = restoredSession.distanceKm;
+
+    if (restoredSession.lastPoint) {
+      setCurrentLocation(restoredSession.lastPoint);
+    }
+  }
+
+  async function restoreActiveWalk() {
+    const restoredSession = restoreWalkSession(
+      await readActiveWalkSession(),
+      Date.now(),
+    );
+
+    if (!restoredSession) {
       return;
     }
 
-    setIsWalking(true);
-    setStartedAt(activeWalk.startedAt);
-    setDurationSec(Math.floor((Date.now() - activeWalk.startedAt) / 1000));
-    setDistanceKm(activeWalk.distanceKm);
-    setPoints(activeWalk.points);
-    setCurrentWalkCells([]);
-    distanceKmRef.current = activeWalk.distanceKm;
+    applyRestoredWalkSession(restoredSession, true);
 
-    const lastPoint = activeWalk.points[activeWalk.points.length - 1];
-
-    if (lastPoint) {
-      setCurrentLocation(lastPoint);
-
+    if (restoredSession.lastPoint) {
       setTimeout(() => {
-        moveMapTo(lastPoint);
+        moveMapTo(restoredSession.lastPoint!);
       }, 700);
     }
   }
 
   async function syncActiveWalkFromStorage() {
-    const activeWalk = await readActiveWalkFromStorage();
+    const restoredSession = restoreWalkSession(
+      await readActiveWalkSession(),
+      Date.now(),
+    );
 
-    if (!activeWalk) {
+    if (!restoredSession) {
       return;
     }
 
-    setStartedAt(activeWalk.startedAt);
-    setDurationSec(Math.floor((Date.now() - activeWalk.startedAt) / 1000));
-    setDistanceKm(activeWalk.distanceKm);
-    setPoints(activeWalk.points);
-    setCurrentWalkCells([]);
-    distanceKmRef.current = activeWalk.distanceKm;
-
-    const lastPoint = activeWalk.points[activeWalk.points.length - 1];
-
-    if (lastPoint) {
-      setCurrentLocation(lastPoint);
-    }
+    applyRestoredWalkSession(restoredSession, false);
   }
 
   async function stopBackgroundLocation() {
@@ -882,14 +889,14 @@ export default function Index() {
       return [...prevPoints, newPoint];
     });
 
-    const activeWalk = await readActiveWalkFromStorage();
+    const activeWalk = await readActiveWalkSession();
 
     if (activeWalk) {
       addPointToActiveWalk(activeWalk, newPoint);
       activeWalk.currentWalkCells = [];
       distanceKmRef.current = activeWalk.distanceKm;
       setDistanceKm(activeWalk.distanceKm);
-      await saveActiveWalkToStorage(activeWalk);
+      await saveActiveWalkSession(activeWalk);
     }
   }
 
@@ -955,7 +962,7 @@ export default function Index() {
 
     const startedSession = startWalkSession(walkStartedAt, firstPoint);
 
-    await saveActiveWalkToStorage(startedSession.activeWalk);
+    await saveActiveWalkSession(startedSession.activeWalk);
 
     setPoints(startedSession.points);
     setCurrentWalkCells(startedSession.currentWalkCells);
@@ -1022,10 +1029,10 @@ export default function Index() {
       locationSubscription.current = null;
     }
 
-    const activeWalk = await readActiveWalkFromStorage();
+    const activeWalk = await readActiveWalkSession();
 
     await stopBackgroundLocation();
-    await removeActiveWalkFromStorage();
+    await clearActiveWalkSession();
 
     const finishedSession = finishWalkSession({
       activeWalk,

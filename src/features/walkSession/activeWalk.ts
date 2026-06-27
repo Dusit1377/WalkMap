@@ -9,6 +9,11 @@ import {
   getProgressStats,
   getTodayKey,
 } from "@/features/statistics/calculations";
+import {
+  readActiveWalkFromStorage,
+  removeActiveWalkFromStorage,
+  saveActiveWalkToStorage,
+} from "@/features/storage/walkmapStorage";
 
 type ProgressStats = ReturnType<typeof getProgressStats>;
 
@@ -28,6 +33,45 @@ type PrepareFinishedWalkSessionParams = {
   ) => string[];
   thinCoveragePoints: (points: WalkPoint[]) => WalkPoint[];
 };
+
+export type RestoredWalkSession = {
+  startedAt: number;
+  durationSec: number;
+  distanceKm: number;
+  points: WalkPoint[];
+  currentWalkCells: string[];
+  lastPoint: WalkPoint | null;
+};
+
+export async function readActiveWalkSession() {
+  return readActiveWalkFromStorage();
+}
+
+export async function saveActiveWalkSession(activeWalk: ActiveWalkData) {
+  await saveActiveWalkToStorage(activeWalk);
+}
+
+export async function clearActiveWalkSession() {
+  await removeActiveWalkFromStorage();
+}
+
+export function restoreWalkSession(
+  activeWalk: ActiveWalkData | null,
+  now: number,
+): RestoredWalkSession | null {
+  if (!activeWalk) {
+    return null;
+  }
+
+  return {
+    startedAt: activeWalk.startedAt,
+    durationSec: Math.floor((now - activeWalk.startedAt) / 1000),
+    distanceKm: activeWalk.distanceKm,
+    points: activeWalk.points,
+    currentWalkCells: [],
+    lastPoint: activeWalk.points[activeWalk.points.length - 1] || null,
+  };
+}
 
 export function createActiveWalk(
   startedAt: number,
