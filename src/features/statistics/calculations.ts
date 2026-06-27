@@ -62,21 +62,6 @@ export function getAverageSpeedKmh(distanceKm: number, durationSec: number) {
   return Number.isFinite(speed) ? speed : 0;
 }
 
-export function getAveragePaceMinPerKm(
-  distanceKm: number,
-  durationSec: number,
-) {
-  const safeDistanceKm = safeNonNegativeNumber(distanceKm);
-  const safeDurationSec = safeNonNegativeNumber(durationSec);
-
-  if (safeDistanceKm <= 0 || safeDurationSec <= 0) {
-    return null;
-  }
-
-  const pace = safeDurationSec / 60 / safeDistanceKm;
-  return Number.isFinite(pace) ? pace : null;
-}
-
 export function getGpsSignalState({
   lastAccuracy,
   lastPointTimestamp,
@@ -157,7 +142,6 @@ export function getWalkDerivedMetrics({
     distanceKm: safeDistanceKm,
     durationSec: safeDurationSec,
     avgSpeedKmh: getAverageSpeedKmh(safeDistanceKm, safeDurationSec),
-    avgPaceMinPerKm: getAveragePaceMinPerKm(safeDistanceKm, safeDurationSec),
     gpsSignalState: getGpsSignalState({
       lastAccuracy,
       lastPointTimestamp: lastPoint?.timestamp,
@@ -333,7 +317,6 @@ export function getProgressStats(_coverageCells: string[], items: WalkHistoryIte
     levelInfo: getLevelInfo(totalDistance),
     dailyProgress: getDailyProgress(items),
     avgSpeedKmh: aggregateMetrics.avgSpeedKmh,
-    avgPaceMinPerKm: aggregateMetrics.avgPaceMinPerKm,
     gpsSignalState: aggregateMetrics.gpsSignalState,
     pointsAccepted: aggregateMetrics.pointsAccepted,
     pointsRejected: aggregateMetrics.pointsRejected,

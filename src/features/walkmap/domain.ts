@@ -47,7 +47,6 @@ export type WalkDerivedMetrics = {
   distanceKm: number;
   durationSec: number;
   avgSpeedKmh: number;
-  avgPaceMinPerKm: number | null;
   gpsSignalState: GpsSignalState;
   pointsAccepted: number;
   pointsRejected: number;

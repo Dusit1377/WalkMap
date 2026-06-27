@@ -1,5 +1,4 @@
 import {
-  getAveragePaceMinPerKm,
   getAverageSpeedKmh,
   getWalkDerivedMetrics,
 } from "@/features/statistics/calculations";
@@ -57,7 +56,6 @@ export const STATISTICS_SELF_CHECKS: StatisticsSelfCheck[] = [
       const metrics = getWalkDerivedMetrics({ points: [] });
       assertFiniteMetric(metrics.distanceKm, "empty distance");
       assertFiniteMetric(metrics.avgSpeedKmh, "empty speed");
-      assertFiniteMetric(metrics.avgPaceMinPerKm, "empty pace");
     },
   },
   {
@@ -66,19 +64,12 @@ export const STATISTICS_SELF_CHECKS: StatisticsSelfCheck[] = [
       const metrics = getWalkDerivedMetrics({ points: [origin] });
       assertFiniteMetric(metrics.distanceKm, "one-point distance");
       assertFiniteMetric(metrics.avgSpeedKmh, "one-point speed");
-      assertFiniteMetric(metrics.avgPaceMinPerKm, "one-point pace");
     },
   },
   {
     name: "zero duration does not create infinite speed",
     run: () => {
       assertCheck(getAverageSpeedKmh(1, 0) === 0, "zero duration speed");
-    },
-  },
-  {
-    name: "zero distance does not create infinite pace",
-    run: () => {
-      assertCheck(getAveragePaceMinPerKm(0, 60) === null, "zero distance pace");
     },
   },
   {

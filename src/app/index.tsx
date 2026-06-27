@@ -7,8 +7,9 @@ import {
   type CameraRef,
 } from "@maplibre/maplibre-react-native";
 import * as Location from "expo-location";
+import { useFocusEffect, useRouter } from "expo-router";
 import * as TaskManager from "expo-task-manager";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   Achievement,
   ActiveWalkData,
@@ -286,6 +287,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
 });
 
 export default function Index() {
+  const router = useRouter();
   const [isWalking, setIsWalking] = useState(false);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [durationSec, setDurationSec] = useState(0);
@@ -307,8 +309,6 @@ export default function Index() {
   const [statsModalVisible, setStatsModalVisible] = useState(false);
   const [achievementsModalVisible, setAchievementsModalVisible] =
     useState(false);
-  const [profileModalVisible, setProfileModalVisible] = useState(false);
-  const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [finishConfirmVisible, setFinishConfirmVisible] = useState(false);
   const [finishConfirmMode, setFinishConfirmMode] = useState<"normal" | "short">(
     "normal",
@@ -348,6 +348,13 @@ export default function Index() {
   useEffect(() => {
     void initializeSQLiteStorage();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadData();
+      void refreshBackgroundRecordingStatus();
+    }, []),
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -1399,18 +1406,6 @@ export default function Index() {
     return `${safeValue.toFixed(1).replace(".", ",")} км/ч`;
   }
 
-  function formatPaceMinPerKm(value: number | null) {
-    if (value === null || !Number.isFinite(value) || value <= 0) {
-      return "—";
-    }
-
-    const totalSeconds = Math.round(value * 60);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-
-    return `${minutes}:${seconds.toString().padStart(2, "0")} мин/км`;
-  }
-
   function formatArea(value: number) {
     if (value < 1) {
       return `${Math.round(value * 1_000_000)} м²`;
@@ -2255,7 +2250,7 @@ export default function Index() {
         <TouchableOpacity
           style={styles.topProfileButton}
           activeOpacity={0.82}
-          onPress={() => setProfileModalVisible(true)}
+          onPress={() => router.push("/profile")}
         >
           <View
             style={[
@@ -2284,7 +2279,7 @@ export default function Index() {
           style={styles.topIconButtonSecondary}
           onPress={() => {
             refreshBackgroundRecordingStatus();
-            setSettingsModalVisible(true);
+            router.push("/settings");
           }}
         >
           <Text style={styles.gearButtonText}>⚙</Text>
@@ -2294,6 +2289,7 @@ export default function Index() {
       <TouchableOpacity
         style={[
           styles.mapLocateButton,
+          !currentLocation && styles.mapLocateButtonDisabled,
           {
             borderColor: accentTheme.border,
             shadowColor: accentTheme.color,
@@ -2304,7 +2300,9 @@ export default function Index() {
           if (currentLocation) moveMapTo(currentLocation);
         }}
       >
-        <Text style={[styles.locateButtonText, { color: accentTheme.color }]}>⌖</Text>
+        <View style={[styles.locateIconOuter, { borderColor: accentTheme.color }]}>
+          <View style={[styles.locateIconInner, { backgroundColor: accentTheme.color }]} />
+        </View>
       </TouchableOpacity>
 
       <View style={styles.bottomPanel} pointerEvents="box-none">
@@ -2518,345 +2516,6 @@ export default function Index() {
             >
               <Text style={styles.secondaryButtonText}>Продолжить прогулку</Text>
             </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={profileModalVisible} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.sheetCard}>
-            <View style={styles.sheetHeader}>
-              <View>
-                <Text style={styles.sheetTitle}>Профиль</Text>
-                <Text style={styles.sheetSubtitle}>Твой прогресс WalkMap</Text>
-              </View>
-
-              <TouchableOpacity
-                style={styles.closeButton}
-                onPress={() => setProfileModalVisible(false)}
-              >
-                <Text style={styles.closeButtonText}>×</Text>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <View style={styles.profileHero}>
-                <View
-                  style={[
-                    styles.profileAvatar,
-                    { backgroundColor: accentTheme.color },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.profileAvatarText,
-                      { color: accentTheme.foreground },
-                    ]}
-                  >
-                    {userInitial}
-                  </Text>
-                </View>
-
-                <View style={styles.profileTextBlock}>
-                  <Text style={styles.profileName}>{userNickname}</Text>
-                  <Text style={styles.profileEmail} numberOfLines={1}>
-                    {userProfileLabel}
-                  </Text>
-                  <Text style={[styles.profileLevel, { color: accentTheme.color }]}>
-                    Ур. {levelInfo.level} · {levelInfo.title}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.menuLevelCard}>
-                <View style={styles.levelTopRow}>
-                  <Text style={styles.levelTitle}>Прогресс уровня</Text>
-                  <Text style={[styles.levelSubtitle, { color: accentTheme.color }]}>
-                    {levelInfo.progressPercent}%
-                  </Text>
-                </View>
-                <View style={styles.progressTrack}>
-                  <View
-                    style={[
-                      styles.progressFill,
-                      {
-                        width: `${levelInfo.progressPercent}%`,
-                        backgroundColor: accentTheme.color,
-                      },
-                    ]}
-                  />
-                </View>
-                <Text style={styles.progressText}>
-                  {levelInfo.distanceToNextLevelKm > 0
-                    ? `До следующего уровня: ${levelInfo.distanceToNextLevelKm} км`
-                    : "Максимальный уровень"}
-                </Text>
-              </View>
-
-              <View style={styles.profileStatsGrid}>
-                <View style={styles.profileStatBox}>
-                  <Text style={styles.profileStatValue}>{formatKm(progressStats.totalDistanceKm)}</Text>
-                  <Text style={styles.profileStatLabel}>всего км</Text>
-                </View>
-
-                <View style={styles.profileStatBox}>
-                  <Text style={styles.profileStatValue}>{history.length}</Text>
-                  <Text style={styles.profileStatLabel}>прогулок</Text>
-                </View>
-
-                <View style={styles.profileStatBox}>
-                  <Text style={styles.profileStatValue}>{progressStats.streak}</Text>
-                  <Text style={styles.profileStatLabel}>серия</Text>
-                </View>
-
-                <View style={styles.profileStatBox}>
-                  <Text style={styles.profileStatValue}>
-                    {unlockedAchievements.length}/{achievements.length}
-                  </Text>
-                  <Text style={styles.profileStatLabel}>наград</Text>
-                </View>
-              </View>
-
-              <View style={styles.profileLinksList}>
-                <TouchableOpacity
-                  style={styles.profileLinkButton}
-                  onPress={() => {
-                    setProfileModalVisible(false);
-                    setHistoryModalVisible(true);
-                  }}
-                >
-                  <Text style={styles.profileLinkTitle}>История</Text>
-                  <Text style={styles.profileLinkMeta}>{history.length}</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.profileLinkButton}
-                  onPress={() => {
-                    setProfileModalVisible(false);
-                    setStatsModalVisible(true);
-                  }}
-                >
-                  <Text style={styles.profileLinkTitle}>Статистика</Text>
-                  <Text style={styles.profileLinkMeta}>{formatKm(totalDistanceKm)} км</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.profileLinkButton}
-                  onPress={() => {
-                    setProfileModalVisible(false);
-                    setAchievementsModalVisible(true);
-                  }}
-                >
-                  <Text style={styles.profileLinkTitle}>Награды</Text>
-                  <Text style={styles.profileLinkMeta}>
-                    {unlockedAchievements.length}/{achievements.length}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={settingsModalVisible} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.sheetCard}>
-            <View style={styles.sheetHeader}>
-              <View>
-                <Text style={styles.sheetTitle}>Настройки</Text>
-                <Text style={styles.sheetSubtitle}>Профиль и запись прогулок</Text>
-              </View>
-
-              <TouchableOpacity
-                style={styles.closeButton}
-                onPress={() => setSettingsModalVisible(false)}
-              >
-                <Text style={styles.closeButtonText}>×</Text>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <View style={styles.accentCard}>
-                <View style={styles.settingsStatusTop}>
-                  <View>
-                    <Text style={styles.menuActionTitle}>Цвет приложения</Text>
-                    <Text style={styles.menuActionSubtitle}>
-                      Акцент применяется сразу
-                    </Text>
-                  </View>
-                  <Text style={[styles.accentCurrentName, { color: accentTheme.color }]}>
-                    {accentTheme.title}
-                  </Text>
-                </View>
-
-                <View style={styles.accentOptionsRow}>
-                  {ACCENT_THEMES.map((theme) => {
-                    const isSelected = theme.id === accentThemeId;
-
-                    return (
-                      <TouchableOpacity
-                        key={theme.id}
-                        accessibilityLabel={`Выбрать ${theme.title}`}
-                        style={[
-                          styles.accentOption,
-                          {
-                            borderColor: isSelected
-                              ? theme.color
-                              : "rgba(255,255,255,0.12)",
-                            backgroundColor: isSelected
-                              ? theme.soft
-                              : "rgba(21, 28, 51, 0.92)",
-                          },
-                        ]}
-                        onPress={() => handleAccentThemeSelect(theme.id)}
-                      >
-                        <View
-                          style={[
-                            styles.accentSwatch,
-                            { backgroundColor: theme.color },
-                          ]}
-                        >
-                          {isSelected ? (
-                            <Text
-                              style={[
-                                styles.accentCheck,
-                                { color: theme.foreground },
-                              ]}
-                            >
-                              ✓
-                            </Text>
-                          ) : null}
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-
-              <View style={styles.settingsStatusCard}>
-                <View style={styles.settingsStatusTop}>
-                  <View>
-                    <Text style={styles.menuActionTitle}>Фоновая запись</Text>
-                    <Text style={styles.menuActionSubtitle}>
-                      Запись с заблокированным экраном
-                    </Text>
-                  </View>
-
-                  <View style={styles.backgroundStatusMeta}>
-                    <View
-                      style={[
-                        styles.backgroundStatusDot,
-                        backgroundRecordingEnabled
-                          ? { backgroundColor: accentTheme.color }
-                          : styles.backgroundStatusDotOff,
-                      ]}
-                    />
-                    <Text
-                      style={[
-                        styles.backgroundStatusText,
-                        backgroundRecordingEnabled
-                          ? { color: accentTheme.color }
-                          : styles.backgroundStatusTextOff,
-                      ]}
-                    >
-                      {backgroundRecordingEnabled ? "Включена" : "Выключена"}
-                    </Text>
-                  </View>
-                </View>
-
-                <Text style={styles.settingsHint}>
-                  {backgroundRecordingEnabled
-                    ? "Маршрут записывается даже с заблокированным экраном."
-                    : "Для записи с заблокированным экраном нужны разрешения геолокации и настройки батареи."}
-                </Text>
-
-                {!backgroundRecordingEnabled && (
-                  <View style={styles.backgroundActionsRow}>
-                    <TouchableOpacity
-                      style={[
-                        styles.backgroundActionButton,
-                        { backgroundColor: accentTheme.color },
-                      ]}
-                      onPress={() => {
-                        setSettingsModalVisible(false);
-                        showBatteryHelp();
-                      }}
-                    >
-                      <Text
-                        style={[
-                          styles.backgroundActionText,
-                          { color: accentTheme.foreground },
-                        ]}
-                      >
-                        Настроить
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.backgroundActionButtonSecondary}
-                      onPress={refreshBackgroundRecordingStatus}
-                    >
-                      <Text style={styles.backgroundActionTextSecondary}>
-                        Проверить
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-
-              <View style={styles.accountCard}>
-                <Text style={styles.accountLabel}>Локальный профиль</Text>
-                <Text style={styles.accountEmail} numberOfLines={1}>
-                  {userNickname}
-                </Text>
-                <TextInput
-                  style={styles.nicknameInput}
-                  value={nicknameDraft}
-                  onChangeText={handleNicknameDraftChange}
-                  placeholder="Гость"
-                  placeholderTextColor="#6F7A99"
-                  maxLength={220}
-                />
-                <TouchableOpacity
-                  style={[
-                    styles.nicknameSaveButton,
-                    { backgroundColor: accentTheme.color },
-                    nicknameBusy && styles.disabledButton,
-                  ]}
-                  onPress={handleSaveNickname}
-                  disabled={nicknameBusy}
-                >
-                  <Text
-                    style={[
-                      styles.nicknameSaveText,
-                      { color: accentTheme.foreground },
-                    ]}
-                  >
-                    Изменить ник
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              <TouchableOpacity
-                style={styles.menuDangerButton}
-                onPress={() => {
-                  setSettingsModalVisible(false);
-                  askResetData();
-                }}
-              >
-                <Text style={styles.menuDangerText}>Сбросить прогресс</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.menuDangerButton}
-                onPress={() => {
-                  setSettingsModalVisible(false);
-                  askResetApplication();
-                }}
-              >
-                <Text style={styles.menuDangerText}>Сбросить всё приложение</Text>
-              </TouchableOpacity>
-            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -3092,12 +2751,6 @@ export default function Index() {
                   <Text style={styles.bigStatLabel}>дней серия</Text>
                 </View>
 
-                <View style={styles.bigStatBox}>
-                  <Text style={styles.bigStatValue}>
-                    {formatPaceMinPerKm(progressStats.avgPaceMinPerKm)}
-                  </Text>
-                  <Text style={styles.bigStatLabel}>средний темп</Text>
-                </View>
               </View>
 
               <View style={styles.areaCard}>
@@ -3372,22 +3025,33 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 16,
     top: 136,
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: "rgba(11, 16, 32, 0.94)",
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "rgba(11, 16, 32, 0.96)",
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    elevation: 8,
-    shadowOpacity: 0.22,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
+    elevation: 10,
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
   },
-  locateButtonText: {
-    color: "#06111F",
-    fontSize: 22,
-    fontWeight: "900",
+  mapLocateButtonDisabled: {
+    opacity: 0.58,
+  },
+  locateIconOuter: {
+    width: 23,
+    height: 23,
+    borderRadius: 12,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  locateIconInner: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
   },
   floatingMenuButton: {
     position: "absolute",
