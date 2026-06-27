@@ -83,7 +83,6 @@ type AppDialogData = {
 
 const BACKGROUND_LOCATION_TASK = "walkmap_background_location_task";
 
-const CELL_SIZE = 0.00045;
 const DEFAULT_CENTER: [number, number] = [49.6679, 58.6035];
 const MAP_STYLE: StyleSpecification = {
   version: 8,
@@ -117,11 +116,8 @@ const MAP_STYLE: StyleSpecification = {
 const UNLOCK_RADIUS_METERS = 48;
 const USER_RADIUS_RING_STEPS = 256;
 const COVERAGE_SAMPLE_STEP_METERS = 10;
-const COVERAGE_CONTOUR_GRID_METERS = 7;
 const MAX_COVERAGE_ROUTES_ON_MAP = 350;
 const MAX_COVERAGE_SAMPLE_POINTS = 3200;
-const MAX_COVERAGE_CONTOUR_VERTICES = 70_000;
-const EARTH_METERS_PER_DEGREE = 111_320;
 const WEB_MERCATOR_RADIUS_METERS = 6_378_137;
 const FOG_OUTER_RING: [number, number][] = [
   [-180, -85],
@@ -220,15 +216,6 @@ async function readLegacyProfileNickname() {
   return readLegacyProfileNicknameFromStorage(normalizeNickname);
 }
 
-
-
-function getCellIdGlobal(latitude: number, longitude: number) {
-  const x = Math.floor(latitude / CELL_SIZE);
-  const y = Math.floor(longitude / CELL_SIZE);
-
-  return `${x}:${y}`;
-}
-
 TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
   if (error) {
     return;
@@ -270,8 +257,8 @@ export default function Index() {
   const [durationSec, setDurationSec] = useState(0);
   const [distanceKm, setDistanceKm] = useState(0);
 
-  const [openedCells, setOpenedCells] = useState<string[]>([]);
-  const [currentWalkCells, setCurrentWalkCells] = useState<string[]>([]);
+  const [, setOpenedCells] = useState<string[]>([]);
+  const [, setCurrentWalkCells] = useState<string[]>([]);
   const [points, setPoints] = useState<WalkPoint[]>([]);
   const [coverageRoutes, setCoverageRoutes] = useState<CoverageRoute[]>([]);
   const [history, setHistory] = useState<WalkHistoryItem[]>([]);
@@ -430,15 +417,6 @@ export default function Index() {
     setAppDialog({
       variant: "info",
       ...dialog,
-    });
-  }
-
-  function showErrorDialog(title: string, message: string) {
-    showAppDialog({
-      title,
-      message,
-      variant: "error",
-      copyText: `${title}\n${message}`,
     });
   }
 
@@ -840,66 +818,6 @@ export default function Index() {
     });
   }
 
-
-  function getCellId(latitude: number, longitude: number) {
-    const x = Math.floor(latitude / CELL_SIZE);
-    const y = Math.floor(longitude / CELL_SIZE);
-
-    return `${x}:${y}`;
-  }
-
-  function getCellPolygonCoordinates(cellId: string) {
-    const parts = cellId.split(":");
-
-    if (parts.length !== 2) return null;
-
-    const x = Number(parts[0]);
-    const y = Number(parts[1]);
-
-    if (Number.isNaN(x) || Number.isNaN(y)) return null;
-
-    const lat = x * CELL_SIZE;
-    const lon = y * CELL_SIZE;
-
-    return [
-      [lon, lat],
-      [lon, lat + CELL_SIZE],
-      [lon + CELL_SIZE, lat + CELL_SIZE],
-      [lon + CELL_SIZE, lat],
-      [lon, lat],
-    ];
-  }
-
-  async function addWalkPoint(newPoint: WalkPoint) {
-    setCurrentLocation(newPoint);
-    await saveLastLocation(newPoint);
-
-    setPoints((prevPoints) => {
-      const lastPoint = prevPoints[prevPoints.length - 1];
-
-      if (lastPoint) {
-        const addedDistance = getDistanceKm(lastPoint, newPoint);
-
-        if (addedDistance > 0.003 && addedDistance < 0.2) {
-          distanceKmRef.current += addedDistance;
-          setDistanceKm(distanceKmRef.current);
-        }
-      }
-
-      return [...prevPoints, newPoint];
-    });
-
-    const activeWalk = await readActiveWalkSession();
-
-    if (activeWalk) {
-      addPointToActiveWalk(activeWalk, newPoint);
-      activeWalk.currentWalkCells = [];
-      distanceKmRef.current = activeWalk.distanceKm;
-      setDistanceKm(activeWalk.distanceKm);
-      await saveActiveWalkSession(activeWalk);
-    }
-  }
-
   async function startWalk() {
     const foregroundPermission = await Location.requestForegroundPermissionsAsync();
 
@@ -1240,48 +1158,6 @@ export default function Index() {
     }
 
     return `${value.toFixed(2).replace(".", ",")} км²`;
-  }
-
-  function getCellGridCoords(cellId: string) {
-    const parts = cellId.split(":");
-
-    if (parts.length !== 2) return null;
-
-    const x = Number(parts[0]);
-    const y = Number(parts[1]);
-
-    if (Number.isNaN(x) || Number.isNaN(y)) return null;
-
-    return { x, y };
-  }
-
-  function makeCoverageRoutesLineGeoJson(routes: CoverageRoute[]): MapGeoJsonData {
-    return {
-      type: "FeatureCollection",
-      features: routes
-        .slice(0, 500)
-        .map((route, index) => {
-          const cleanPoints = route.points.filter(isValidWalkPoint);
-
-          if (cleanPoints.length < 2) {
-            return null;
-          }
-
-          return {
-            type: "Feature" as const,
-            id: route.id || index,
-            properties: {},
-            geometry: {
-              type: "LineString" as const,
-              coordinates: cleanPoints.map((point) => [
-                point.longitude,
-                point.latitude,
-              ]),
-            },
-          };
-        })
-        .filter(Boolean),
-    };
   }
 
   function pointToMercatorMeters(point: WalkPoint) {
@@ -1836,8 +1712,6 @@ export default function Index() {
         : [],
     };
   }
-
-  const newCellsNow = 0;
 
   const totalDistanceKm = history.reduce(
     (sum, item) => sum + (Number(item.distanceKm) || 0),
