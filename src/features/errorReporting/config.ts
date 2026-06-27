@@ -1,0 +1,3 @@
+export const ERROR_REPORTING_ENABLED = false;
+export const ERROR_REPORTING_ENDPOINT = "";
+export const ERROR_REPORTING_TIMEOUT_MS = 8000;

@@ -23,6 +23,7 @@ export type SanitizedErrorPayload = {
   timestamp: number;
   platform: string;
   appVersion?: string;
+  buildVersion?: string;
   source: ErrorSource;
   severity: ErrorSeverity;
   message: string;

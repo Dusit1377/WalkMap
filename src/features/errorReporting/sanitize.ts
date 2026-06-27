@@ -30,6 +30,16 @@ function createReportId(timestamp: number) {
   return `local-${timestamp}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function getBuildVersion() {
+  const androidVersionCode = Constants.expoConfig?.android?.versionCode;
+
+  if (androidVersionCode !== undefined) {
+    return String(androidVersionCode);
+  }
+
+  return Constants.expoConfig?.ios?.buildNumber;
+}
+
 function sanitizeMetadata(metadata?: Record<string, unknown>) {
   if (!metadata) {
     return undefined;
@@ -75,6 +85,7 @@ export function sanitizeErrorReport(
     timestamp,
     platform: Platform.OS,
     appVersion: Constants.expoConfig?.version,
+    buildVersion: getBuildVersion(),
     source: report.source,
     severity: report.severity ?? "error",
     message: trimText(report.message, MAX_MESSAGE_LENGTH),
