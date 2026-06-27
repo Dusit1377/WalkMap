@@ -18,7 +18,8 @@
           "locationWhenInUsePermission": "WalkMap использует геолокацию, чтобы показывать тебя на карте и записывать прогулки.",
           "locationAlwaysAndWhenInUsePermission": "WalkMap использует геолокацию в фоне, чтобы записывать прогулку с заблокированным экраном."
         }
-      ]
+      ],
+      "expo-sqlite"
     ],
     "ios": {
       "supportsTablet": true

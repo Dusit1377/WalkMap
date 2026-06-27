@@ -40,6 +40,7 @@ import {
   profileRepository,
   progressRepository,
 } from "@/features/storage/repositories";
+import { initializeLocalDatabase } from "@/features/storage/sqlite/database";
 import {
   ActivityIndicator,
   AppState,
@@ -296,6 +297,10 @@ export default function Index() {
   const userNickname = localProfile?.nickname ?? "Гость";
   const userProfileLabel = "Локальный профиль";
   const userInitial = userNickname.slice(0, 1).toUpperCase();
+
+  useEffect(() => {
+    void initializeLocalDatabase();
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
