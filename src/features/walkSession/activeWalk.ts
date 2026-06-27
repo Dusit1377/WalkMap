@@ -5,8 +5,8 @@ import type {
   WalkPoint,
   WalkSessionStatus,
 } from "@/features/walkmap/domain";
+import { getDistanceKm } from "@/features/statistics/distance";
 import {
-  getDistanceKm,
   getProgressStats,
   getTodayKey,
 } from "@/features/statistics/calculations";

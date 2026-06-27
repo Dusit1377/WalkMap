@@ -1,5 +1,5 @@
 import type { WalkPoint } from "@/features/walkmap/domain";
-import { getDistanceKm } from "@/features/statistics/calculations";
+import { getDistanceKm } from "@/features/statistics/distance";
 import { appendLocalErrorReport } from "@/features/errorReporting";
 
 export type TrackingPointSource = "foreground" | "background";

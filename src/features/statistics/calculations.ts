@@ -1,9 +1,14 @@
 import type {
   DailyProgress,
+  GpsSignalState,
   LevelInfo,
+  WalkDerivedMetrics,
   WalkHistoryItem,
   WalkPoint,
 } from "@/features/walkmap/domain";
+import { getRouteDistanceKm } from "@/features/statistics/distance";
+
+export { getDistanceKm, getRouteDistanceKm } from "@/features/statistics/distance";
 
 const DAILY_DISTANCE_GOAL_KM = 1;
 
@@ -16,23 +21,157 @@ const LEVELS = [
   { level: 6, title: "Легенда маршрутов", km: 75 },
 ];
 
-function toRad(value: number) {
-  return (value * Math.PI) / 180;
+type GpsSignalInput = {
+  lastAccuracy?: number | null;
+  lastPointTimestamp?: number | null;
+  now?: number;
+  pointsAccepted?: number;
+  pointsRejected?: number;
+};
+
+type DerivedMetricsInput = {
+  points?: WalkPoint[];
+  startedAt?: number | null;
+  finishedAt?: number | null;
+  distanceKm?: number | null;
+  durationSec?: number | null;
+  pointsAccepted?: number | null;
+  pointsRejected?: number | null;
+  rejectedPointsByReason?: Partial<Record<string, number>>;
+  lastAccuracy?: number | null;
+  now?: number;
+};
+
+function safeNumber(value: unknown, fallback = 0) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
-export function getDistanceKm(a: WalkPoint, b: WalkPoint) {
-  const R = 6371;
-  const dLat = toRad(b.latitude - a.latitude);
-  const dLon = toRad(b.longitude - a.longitude);
+function safeNonNegativeNumber(value: unknown) {
+  return Math.max(0, safeNumber(value));
+}
 
-  const lat1 = toRad(a.latitude);
-  const lat2 = toRad(b.latitude);
+export function getAverageSpeedKmh(distanceKm: number, durationSec: number) {
+  const safeDistanceKm = safeNonNegativeNumber(distanceKm);
+  const safeDurationSec = safeNonNegativeNumber(durationSec);
 
-  const h =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  if (safeDistanceKm <= 0 || safeDurationSec <= 0) {
+    return 0;
+  }
 
-  return 2 * R * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+  const speed = safeDistanceKm / (safeDurationSec / 3600);
+  return Number.isFinite(speed) ? speed : 0;
+}
+
+export function getAveragePaceMinPerKm(
+  distanceKm: number,
+  durationSec: number,
+) {
+  const safeDistanceKm = safeNonNegativeNumber(distanceKm);
+  const safeDurationSec = safeNonNegativeNumber(durationSec);
+
+  if (safeDistanceKm <= 0 || safeDurationSec <= 0) {
+    return null;
+  }
+
+  const pace = safeDurationSec / 60 / safeDistanceKm;
+  return Number.isFinite(pace) ? pace : null;
+}
+
+export function getGpsSignalState({
+  lastAccuracy,
+  lastPointTimestamp,
+  now = Date.now(),
+  pointsAccepted = 0,
+  pointsRejected = 0,
+}: GpsSignalInput): GpsSignalState {
+  const accepted = safeNonNegativeNumber(pointsAccepted);
+  const rejected = safeNonNegativeNumber(pointsRejected);
+  const totalPoints = accepted + rejected;
+  const rejectionRatio = totalPoints > 0 ? rejected / totalPoints : 0;
+  const accuracy = safeNumber(lastAccuracy, Number.NaN);
+  const timestamp = safeNumber(lastPointTimestamp, Number.NaN);
+  const ageMs = Number.isFinite(timestamp) ? now - timestamp : Number.NaN;
+
+  if (accepted <= 0) {
+    return rejected > 0 ? "lost" : "unknown";
+  }
+
+  if (Number.isFinite(ageMs) && ageMs > 2 * 60 * 1000) {
+    return "lost";
+  }
+
+  if (
+    (Number.isFinite(accuracy) && accuracy > 80) ||
+    rejectionRatio >= 0.5
+  ) {
+    return "poor";
+  }
+
+  if (
+    (Number.isFinite(accuracy) && accuracy > 35) ||
+    rejectionRatio >= 0.2
+  ) {
+    return "weak";
+  }
+
+  return "good";
+}
+
+export function getWalkDerivedMetrics({
+  points = [],
+  startedAt,
+  finishedAt,
+  distanceKm,
+  durationSec,
+  pointsAccepted,
+  pointsRejected,
+  rejectedPointsByReason,
+  lastAccuracy,
+  now = Date.now(),
+}: DerivedMetricsInput): WalkDerivedMetrics {
+  const safeStartedAt = safeNumber(startedAt, Number.NaN);
+  const safeFinishedAt = safeNumber(finishedAt, now);
+  const timestampDurationSec =
+    Number.isFinite(safeStartedAt) && Number.isFinite(safeFinishedAt)
+      ? Math.max(0, Math.floor((safeFinishedAt - safeStartedAt) / 1000))
+      : 0;
+  const safeDurationSec =
+    durationSec === null || durationSec === undefined
+      ? timestampDurationSec
+      : safeNonNegativeNumber(durationSec);
+  const safeDistanceKm =
+    distanceKm === null || distanceKm === undefined
+      ? getRouteDistanceKm(points)
+      : safeNonNegativeNumber(distanceKm);
+  const accepted =
+    pointsAccepted === null || pointsAccepted === undefined
+      ? points.length
+      : safeNonNegativeNumber(pointsAccepted);
+  const rejected =
+    pointsRejected === null || pointsRejected === undefined
+      ? 0
+      : safeNonNegativeNumber(pointsRejected);
+  const lastPoint = points[points.length - 1];
+
+  return {
+    distanceKm: safeDistanceKm,
+    durationSec: safeDurationSec,
+    avgSpeedKmh: getAverageSpeedKmh(safeDistanceKm, safeDurationSec),
+    avgPaceMinPerKm: getAveragePaceMinPerKm(safeDistanceKm, safeDurationSec),
+    gpsSignalState: getGpsSignalState({
+      lastAccuracy,
+      lastPointTimestamp: lastPoint?.timestamp,
+      now,
+      pointsAccepted: accepted,
+      pointsRejected: rejected,
+    }),
+    pointsAccepted: accepted,
+    pointsRejected: rejected,
+    rejectedPointsByReason,
+    startedAt: Number.isFinite(safeStartedAt) ? safeStartedAt : undefined,
+    finishedAt: Number.isFinite(safeFinishedAt) ? safeFinishedAt : undefined,
+    movingDurationSec: safeDurationSec,
+  };
 }
 
 export function getTodayKey() {
@@ -82,44 +221,48 @@ export function getStreak(items: WalkHistoryItem[]) {
 }
 
 export function getLevelInfo(totalDistanceKm: number): LevelInfo {
+  const safeTotalDistanceKm = safeNonNegativeNumber(totalDistanceKm);
   let current = LEVELS[0];
   let next = LEVELS[LEVELS.length - 1];
 
   for (let index = 0; index < LEVELS.length; index += 1) {
-    if (totalDistanceKm >= LEVELS[index].km) {
+    if (safeTotalDistanceKm >= LEVELS[index].km) {
       current = LEVELS[index];
     }
 
-    if (totalDistanceKm < LEVELS[index].km) {
+    if (safeTotalDistanceKm < LEVELS[index].km) {
       next = LEVELS[index];
       break;
     }
   }
 
-  const currentTarget = current.km;
-  const nextTarget = next.km;
+  const currentLevelTargetKm = current.km;
+  const nextLevelTargetKm = next.km;
   const isMaxLevel = current.level === LEVELS[LEVELS.length - 1].level;
   const progressPercent = isMaxLevel
     ? 100
     : Math.min(
         100,
-        Math.round(
-          ((totalDistanceKm - currentTarget) /
-            Math.max(0.1, nextTarget - currentTarget)) *
-            100,
+        Math.max(
+          0,
+          Math.round(
+            ((safeTotalDistanceKm - currentLevelTargetKm) /
+              Math.max(0.1, nextLevelTargetKm - currentLevelTargetKm)) *
+              100,
+          ),
         ),
       );
 
   return {
     level: current.level,
     title: current.title,
-    currentCells: Math.round(totalDistanceKm * 10) / 10,
-    currentTarget,
-    nextTarget,
+    currentLevelDistanceKm: Math.round(safeTotalDistanceKm * 10) / 10,
+    currentLevelTargetKm,
+    nextLevelTargetKm,
     progressPercent,
-    cellsToNextLevel: isMaxLevel
+    distanceToNextLevelKm: isMaxLevel
       ? 0
-      : Math.max(0, Math.round((nextTarget - totalDistanceKm) * 10) / 10),
+      : Math.max(0, Math.round((nextLevelTargetKm - safeTotalDistanceKm) * 10) / 10),
   };
 }
 
@@ -130,12 +273,12 @@ export function getDailyProgress(items: WalkHistoryItem[]): DailyProgress {
   );
 
   const todayDistance = todayItems.reduce(
-    (sum, item) => sum + (Number(item.distanceKm) || 0),
+    (sum, item) => sum + safeNonNegativeNumber(item.distanceKm),
     0,
   );
 
   const todayDuration = todayItems.reduce(
-    (sum, item) => sum + (Number(item.durationSec) || 0),
+    (sum, item) => sum + safeNonNegativeNumber(item.durationSec),
     0,
   );
 
@@ -143,9 +286,7 @@ export function getDailyProgress(items: WalkHistoryItem[]): DailyProgress {
     dayKey: todayKey,
     distanceKm: todayDistance,
     durationSec: todayDuration,
-    newCells: 0,
     walks: todayItems.length,
-    cellsGoalPercent: 0,
     distanceGoalPercent: Math.min(
       100,
       Math.round((todayDistance / DAILY_DISTANCE_GOAL_KM) * 100),
@@ -154,37 +295,47 @@ export function getDailyProgress(items: WalkHistoryItem[]): DailyProgress {
   };
 }
 
-export function getProgressStats(_cells: string[], items: WalkHistoryItem[]) {
+export function getProgressStats(_coverageCells: string[], items: WalkHistoryItem[]) {
   const totalDistance = items.reduce(
-    (sum, item) => sum + (Number(item.distanceKm) || 0),
+    (sum, item) => sum + safeNonNegativeNumber(item.distanceKm),
     0,
   );
 
   const totalDuration = items.reduce(
-    (sum, item) => sum + (Number(item.durationSec) || 0),
+    (sum, item) => sum + safeNonNegativeNumber(item.durationSec),
     0,
   );
 
   const longestWalkKm = items.reduce(
-    (max, item) => Math.max(max, Number(item.distanceKm) || 0),
+    (max, item) => Math.max(max, safeNonNegativeNumber(item.distanceKm)),
     0,
   );
 
   const longestWalkSec = items.reduce(
-    (max, item) => Math.max(max, Number(item.durationSec) || 0),
+    (max, item) => Math.max(max, safeNonNegativeNumber(item.durationSec)),
     0,
   );
+
+  const aggregateMetrics = getWalkDerivedMetrics({
+    distanceKm: totalDistance,
+    durationSec: totalDuration,
+    pointsAccepted: 0,
+    pointsRejected: 0,
+  });
 
   return {
     totalWalks: items.length,
     totalDistanceKm: totalDistance,
     totalDurationSec: totalDuration,
-    openedCellsCount: 0,
     longestWalkKm,
     longestWalkSec,
-    bestCellsWalk: 0,
     streak: getStreak(items),
     levelInfo: getLevelInfo(totalDistance),
     dailyProgress: getDailyProgress(items),
+    avgSpeedKmh: aggregateMetrics.avgSpeedKmh,
+    avgPaceMinPerKm: aggregateMetrics.avgPaceMinPerKm,
+    gpsSignalState: aggregateMetrics.gpsSignalState,
+    pointsAccepted: aggregateMetrics.pointsAccepted,
+    pointsRejected: aggregateMetrics.pointsRejected,
   };
 }

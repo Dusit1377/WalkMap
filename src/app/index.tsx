@@ -37,9 +37,9 @@ import {
   type TrackingPointSource,
 } from "@/features/location/trackingQuality";
 import {
-  getDistanceKm,
   getProgressStats,
 } from "@/features/statistics/calculations";
+import { getDistanceKm } from "@/features/statistics/distance";
 import {
   coverageRepository,
   historyRepository,
@@ -1394,6 +1394,23 @@ export default function Index() {
     return value.toFixed(2).replace(".", ",");
   }
 
+  function formatSpeedKmh(value: number) {
+    const safeValue = Number.isFinite(value) ? Math.max(0, value) : 0;
+    return `${safeValue.toFixed(1).replace(".", ",")} км/ч`;
+  }
+
+  function formatPaceMinPerKm(value: number | null) {
+    if (value === null || !Number.isFinite(value) || value <= 0) {
+      return "—";
+    }
+
+    const totalSeconds = Math.round(value * 60);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+
+    return `${minutes}:${seconds.toString().padStart(2, "0")} мин/км`;
+  }
+
   function formatArea(value: number) {
     if (value < 1) {
       return `${Math.round(value * 1_000_000)} м²`;
@@ -2318,11 +2335,7 @@ export default function Index() {
             >
               <Text style={styles.homeInfoLabel}>Цель дня</Text>
               <Text style={[styles.homeInfoValue, { color: accentTheme.color }]}>
-                {Math.max(
-                  dailyProgress.cellsGoalPercent,
-                  dailyProgress.distanceGoalPercent,
-                )}
-                %
+                {dailyProgress.distanceGoalPercent}%
               </Text>
             </TouchableOpacity>
 
@@ -2574,8 +2587,8 @@ export default function Index() {
                   />
                 </View>
                 <Text style={styles.progressText}>
-                  {levelInfo.cellsToNextLevel > 0
-                    ? `До следующего уровня: ${levelInfo.cellsToNextLevel} км`
+                  {levelInfo.distanceToNextLevelKm > 0
+                    ? `До следующего уровня: ${levelInfo.distanceToNextLevelKm} км`
                     : "Максимальный уровень"}
                 </Text>
               </View>
@@ -3059,8 +3072,10 @@ export default function Index() {
                 </View>
 
                 <View style={styles.bigStatBox}>
-                  <Text style={styles.bigStatValue}>{formatKm(progressStats.totalDistanceKm)}</Text>
-                  <Text style={styles.bigStatLabel}>всего пройдено</Text>
+                  <Text style={styles.bigStatValue}>
+                    {formatSpeedKmh(progressStats.avgSpeedKmh)}
+                  </Text>
+                  <Text style={styles.bigStatLabel}>средняя скорость</Text>
                 </View>
 
                 <View style={styles.bigStatBox}>
@@ -3076,6 +3091,13 @@ export default function Index() {
                   </Text>
                   <Text style={styles.bigStatLabel}>дней серия</Text>
                 </View>
+
+                <View style={styles.bigStatBox}>
+                  <Text style={styles.bigStatValue}>
+                    {formatPaceMinPerKm(progressStats.avgPaceMinPerKm)}
+                  </Text>
+                  <Text style={styles.bigStatLabel}>средний темп</Text>
+                </View>
               </View>
 
               <View style={styles.areaCard}>
@@ -3089,11 +3111,7 @@ export default function Index() {
               <View style={styles.areaCard}>
                 <Text style={styles.areaLabel}>Дневная цель</Text>
                 <Text style={styles.areaValue}>
-                  {Math.max(
-                    dailyProgress.cellsGoalPercent,
-                    dailyProgress.distanceGoalPercent,
-                  )}
-                  %
+                  {dailyProgress.distanceGoalPercent}%
                 </Text>
                 <Text style={styles.areaHint}>
                   Сегодня: {dailyProgress.walks} прогулок · {formatKm(dailyProgress.distanceKm)} км

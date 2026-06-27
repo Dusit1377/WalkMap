@@ -25,22 +25,36 @@ export type Achievement = {
 export type LevelInfo = {
   level: number;
   title: string;
-  currentCells: number;
-  currentTarget: number;
-  nextTarget: number;
+  currentLevelDistanceKm: number;
+  currentLevelTargetKm: number;
+  nextLevelTargetKm: number;
   progressPercent: number;
-  cellsToNextLevel: number;
+  distanceToNextLevelKm: number;
 };
 
 export type DailyProgress = {
   dayKey: string;
   distanceKm: number;
   durationSec: number;
-  newCells: number;
   walks: number;
-  cellsGoalPercent: number;
   distanceGoalPercent: number;
   isGoalDone: boolean;
+};
+
+export type GpsSignalState = "good" | "weak" | "poor" | "lost" | "unknown";
+
+export type WalkDerivedMetrics = {
+  distanceKm: number;
+  durationSec: number;
+  avgSpeedKmh: number;
+  avgPaceMinPerKm: number | null;
+  gpsSignalState: GpsSignalState;
+  pointsAccepted: number;
+  pointsRejected: number;
+  rejectedPointsByReason?: Partial<Record<string, number>>;
+  startedAt?: number;
+  finishedAt?: number;
+  movingDurationSec?: number;
 };
 
 export type MapGeoJsonData = {
