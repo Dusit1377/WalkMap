@@ -19,12 +19,12 @@ import type {
 } from "@/features/walkmap/domain";
 import {
   addPointToActiveWalk,
-  createActiveWalk,
+  finishWalkSession,
+  startWalkSession,
 } from "@/features/walkSession/activeWalk";
 import {
   getDistanceKm,
   getProgressStats,
-  getTodayKey,
 } from "@/features/statistics/calculations";
 import {
   hasLegacyLocalProgressInStorage,
@@ -953,12 +953,12 @@ export default function Index() {
       timestamp: firstLocation.timestamp || Date.now(),
     };
 
-    const activeWalk = createActiveWalk(walkStartedAt, firstPoint);
+    const startedSession = startWalkSession(walkStartedAt, firstPoint);
 
-    await saveActiveWalkToStorage(activeWalk);
+    await saveActiveWalkToStorage(startedSession.activeWalk);
 
-    setPoints(activeWalk.points);
-    setCurrentWalkCells([]);
+    setPoints(startedSession.points);
+    setCurrentWalkCells(startedSession.currentWalkCells);
     setCurrentLocation(firstPoint);
     await saveLastLocation(firstPoint);
     moveMapTo(firstPoint);
@@ -1027,64 +1027,37 @@ export default function Index() {
     await stopBackgroundLocation();
     await removeActiveWalkFromStorage();
 
-    const finishStartedAt = activeWalk?.startedAt ?? startedAt;
-    const finishDurationSec = finishStartedAt
-      ? Math.floor((Date.now() - finishStartedAt) / 1000)
-      : durationSec;
-
-    const finishPoints =
-      activeWalk && activeWalk.points.length > 0 ? activeWalk.points : points;
-    const finishDistanceKm = activeWalk?.distanceKm ?? distanceKmRef.current;
-
-    const previousStats = getProgressStats([], history);
-    const nextHistoryBase: WalkHistoryItem = {
-      id: Date.now().toString(),
-      date: new Date().toLocaleString("ru-RU"),
-      dayKey: getTodayKey(),
-      distanceKm: finishDistanceKm,
-      durationSec: finishDurationSec,
-      newCells: 0,
-      totalCells: undefined,
-    };
-
-    const nextStats = getProgressStats([], [
-      nextHistoryBase,
-      ...history,
-    ]);
-
-    const unlockedNow = getNewAchievements(previousStats, nextStats);
-
-    const walkItem: WalkHistoryItem = {
-      ...nextHistoryBase,
-      achievementsUnlocked: unlockedNow.map((achievement) => achievement.id),
-    };
-
-    const nextHistory = [walkItem, ...history];
-    const nextCoverageRoutes =
-      finishPoints.length > 0
-        ? [
-            {
-              id: walkItem.id,
-              points: thinCoveragePoints(finishPoints),
-            },
-            ...coverageRoutes,
-          ].slice(0, 500)
-        : coverageRoutes;
+    const finishedSession = finishWalkSession({
+      activeWalk,
+      fallbackStartedAt: startedAt,
+      fallbackDurationSec: durationSec,
+      fallbackPoints: points,
+      fallbackDistanceKm: distanceKmRef.current,
+      history,
+      coverageRoutes,
+      now: Date.now(),
+      localeDate: new Date().toLocaleString("ru-RU"),
+      getUnlockedAchievementIds: (previousStats, nextStats) =>
+        getNewAchievements(previousStats, nextStats).map(
+          (achievement) => achievement.id,
+        ),
+      thinCoveragePoints,
+    });
 
     setOpenedCells([]);
-    setCoverageRoutes(nextCoverageRoutes);
-    setHistory(nextHistory);
-    setLastResult(walkItem);
+    setCoverageRoutes(finishedSession.nextCoverageRoutes);
+    setHistory(finishedSession.nextHistory);
+    setLastResult(finishedSession.walkItem);
     setResultModalVisible(true);
-    setDurationSec(finishDurationSec);
-    setDistanceKm(finishDistanceKm);
-    setPoints(finishPoints);
+    setDurationSec(finishedSession.durationSec);
+    setDistanceKm(finishedSession.distanceKm);
+    setPoints(finishedSession.points);
     setCurrentWalkCells([]);
-    distanceKmRef.current = finishDistanceKm;
+    distanceKmRef.current = finishedSession.distanceKm;
 
     await saveCells([]);
-    await saveCoverageRoutes(nextCoverageRoutes);
-    await saveHistory(nextHistory);
+    await saveCoverageRoutes(finishedSession.nextCoverageRoutes);
+    await saveHistory(finishedSession.nextHistory);
 
     setIsWalking(false);
     setStartedAt(null);
