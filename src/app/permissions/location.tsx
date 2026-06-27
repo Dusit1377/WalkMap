@@ -1,8 +1,9 @@
 import * as Location from "expo-location";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   Linking,
   StatusBar,
   StyleSheet,
@@ -57,35 +58,31 @@ export default function LocationPermissionScreen() {
     }, [checkPermission]),
   );
 
-  async function requestLocationAccess() {
-    setBusy(true);
-
-    try {
-      const foregroundPermission =
-        await Location.requestForegroundPermissionsAsync();
-
-      if (foregroundPermission.status !== "granted") {
-        setState("missing");
-        return;
+  useEffect(() => {
+    const appStateSubscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        void checkPermission();
       }
+    });
 
-      const backgroundPermission =
-        await Location.requestBackgroundPermissionsAsync();
+    return () => {
+      appStateSubscription.remove();
+    };
+  }, [checkPermission]);
 
-      setState(
-        backgroundPermission.status === "granted" ? "ready" : "missing",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function goNext() {
-    if (!isReady) {
+  async function handlePrimaryAction() {
+    if (isReady) {
+      router.replace("/permissions/battery");
       return;
     }
 
-    router.replace("/permissions/battery");
+    setBusy(true);
+
+    try {
+      await Linking.openSettings();
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -113,48 +110,31 @@ export default function LocationPermissionScreen() {
           <View
             style={[
               styles.statusDot,
-              { backgroundColor: isReady ? accentTheme.color : "#F6C343" },
+              { backgroundColor: isReady ? "#27AE60" : "#F6C343" },
             ]}
           />
           <Text style={styles.statusText}>{statusText}</Text>
         </View>
       </View>
 
-      <View style={styles.actions}>
-        <TouchableOpacity
-          activeOpacity={0.85}
-          disabled={busy}
-          onPress={requestLocationAccess}
-          style={[styles.secondaryButton, busy && styles.disabledButton]}
-        >
-          {busy ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <Text style={styles.secondaryButtonText}>Разрешить доступ</Text>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => Linking.openSettings()}
-          style={styles.secondaryButton}
-        >
-          <Text style={styles.secondaryButtonText}>Открыть настройки</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          activeOpacity={0.9}
-          disabled={!isReady}
-          onPress={goNext}
-          style={[
-            styles.primaryButton,
-            { backgroundColor: accentTheme.color },
-            !isReady && styles.disabledButton,
-          ]}
-        >
-          <Text style={styles.primaryButtonText}>Дальше</Text>
-        </TouchableOpacity>
-      </View>
+      <TouchableOpacity
+        activeOpacity={0.9}
+        disabled={busy}
+        onPress={handlePrimaryAction}
+        style={[
+          styles.primaryButton,
+          { backgroundColor: isReady ? "#27AE60" : accentTheme.color },
+          busy && styles.disabledButton,
+        ]}
+      >
+        {busy ? (
+          <ActivityIndicator color="#FFFFFF" />
+        ) : (
+          <Text style={styles.primaryButtonText}>
+            {isReady ? "Далее" : "Разрешить доступ"}
+          </Text>
+        )}
+      </TouchableOpacity>
     </View>
   );
 }
@@ -237,9 +217,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "800",
   },
-  actions: {
-    gap: 12,
-  },
   primaryButton: {
     alignItems: "center",
     borderRadius: 8,
@@ -249,18 +226,6 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     color: "#FFFFFF",
     fontSize: 16,
-    fontWeight: "900",
-  },
-  secondaryButton: {
-    alignItems: "center",
-    backgroundColor: "#202944",
-    borderRadius: 8,
-    minHeight: 50,
-    justifyContent: "center",
-  },
-  secondaryButtonText: {
-    color: "#FFFFFF",
-    fontSize: 15,
     fontWeight: "900",
   },
   disabledButton: {

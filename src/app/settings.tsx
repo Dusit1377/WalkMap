@@ -19,6 +19,7 @@ import {
   activeWalkRepository,
   coverageRepository,
   historyRepository,
+  preferencesRepository,
   profileRepository,
   progressRepository,
 } from "@/features/storage/repositories";
@@ -34,6 +35,8 @@ export default function SettingsScreen() {
     useState(false);
   const [backgroundRecordingLabel, setBackgroundRecordingLabel] =
     useState("Неизвестно");
+  const [locationPermissionReady, setLocationPermissionReady] = useState(false);
+  const [backgroundRecordingReady, setBackgroundRecordingReady] = useState(false);
   const [profile, setProfile] = useState<LocalProfile | null>(null);
   const [nicknameDraft, setNicknameDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -61,19 +64,33 @@ export default function SettingsScreen() {
 
   async function refreshBackgroundRecordingStatus() {
     try {
-      const backgroundPermission = await Location.getBackgroundPermissionsAsync();
+      const [foregroundPermission, backgroundPermission, batteryAcknowledged] =
+        await Promise.all([
+          Location.getForegroundPermissionsAsync(),
+          Location.getBackgroundPermissionsAsync(),
+          preferencesRepository.readBatteryInstructionAcknowledged(),
+        ]);
       const hasStarted = await Location.hasStartedLocationUpdatesAsync(
         BACKGROUND_LOCATION_TASK,
       );
+      const hasBackgroundPermission = backgroundPermission.status === "granted";
+      const isBackgroundReady = hasBackgroundPermission && batteryAcknowledged;
+
+      setLocationPermissionReady(
+        foregroundPermission.status === "granted" && hasBackgroundPermission,
+      );
+      setBackgroundRecordingReady(isBackgroundReady);
       setBackgroundRecordingEnabled(hasStarted);
       setBackgroundRecordingLabel(
         hasStarted
           ? "Активна"
-          : backgroundPermission.status === "granted"
-            ? "Включится во время прогулки"
-            : "Нужно разрешение",
+          : isBackgroundReady
+            ? "Готова к прогулке"
+            : "Нужно настроить",
       );
     } catch {
+      setLocationPermissionReady(false);
+      setBackgroundRecordingReady(false);
       setBackgroundRecordingEnabled(false);
       setBackgroundRecordingLabel("Неизвестно");
     }
@@ -138,23 +155,6 @@ export default function SettingsScreen() {
     );
   }
 
-  function askResetData() {
-    Alert.alert(
-      "Сбросить прогресс?",
-      "Будут удалены прогулки, история и открытая территория. Профиль и цвет останутся.",
-      [
-        { text: "Отмена", style: "cancel" },
-        {
-          text: "Сбросить",
-          style: "destructive",
-          onPress: () => {
-            void resetProgressData();
-          },
-        },
-      ],
-    );
-  }
-
   function askResetApplication() {
     Alert.alert(
       "Сбросить всё приложение?",
@@ -187,6 +187,29 @@ export default function SettingsScreen() {
     await progressRepository.clearProgressData();
     await coverageRepository.writeCoverageRoutes([]);
     await historyRepository.writeHistory([]);
+  }
+
+  function askLogout() {
+    Alert.alert(
+      "Выйти из аккаунта?",
+      "В WalkMap сейчас используется локальный профиль. Выход уберёт только ник профиля, а прогулки, история и прогресс останутся на устройстве.",
+      [
+        { text: "Отмена", style: "cancel" },
+        {
+          text: "Выйти",
+          style: "destructive",
+          onPress: () => {
+            void logoutFromLocalProfile();
+          },
+        },
+      ],
+    );
+  }
+
+  async function logoutFromLocalProfile() {
+    await profileRepository.clearProfile();
+    setProfile(null);
+    setNicknameDraft("");
   }
 
   return (
@@ -249,21 +272,48 @@ export default function SettingsScreen() {
 
         <View style={styles.card}>
           <View style={styles.rowBetween}>
-            <Text style={styles.cardTitle}>Фоновая запись</Text>
+            <View style={styles.cardTextBlock}>
+              <Text style={styles.cardTitle}>Геолокация</Text>
+              <Text style={styles.cardSubtitle}>
+                Нужна, чтобы записывать прогулки и открывать карту вокруг вас.
+              </Text>
+            </View>
+            <View style={styles.statusMeta}>
+              <View
+                style={[
+                  styles.statusDot,
+                  locationPermissionReady
+                    ? { backgroundColor: "#27AE60" }
+                    : styles.statusDotOff,
+                ]}
+              />
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.rowBetween}>
+            <View style={styles.cardTextBlock}>
+              <Text style={styles.cardTitle}>Фоновая запись</Text>
+              <Text style={styles.cardSubtitle}>
+                Помогает продолжать запись прогулки в фоне. Для стабильной
+                работы отключите ограничение батареи.
+              </Text>
+            </View>
             <View style={styles.backgroundStatusMeta}>
               <View
                 style={[
-                  styles.backgroundStatusDot,
-                  backgroundRecordingEnabled
-                    ? { backgroundColor: accentTheme.color }
-                    : styles.backgroundStatusDotOff,
+                  styles.statusDot,
+                  backgroundRecordingReady || backgroundRecordingEnabled
+                    ? { backgroundColor: "#27AE60" }
+                    : styles.statusDotOff,
                 ]}
               />
               <Text
                 style={[
                   styles.backgroundStatusText,
-                  backgroundRecordingEnabled
-                    ? { color: accentTheme.color }
+                  backgroundRecordingReady || backgroundRecordingEnabled
+                    ? { color: "#27AE60" }
                     : styles.backgroundStatusTextOff,
                 ]}
               >
@@ -272,7 +322,7 @@ export default function SettingsScreen() {
             </View>
           </View>
 
-          {!backgroundRecordingEnabled && (
+          {!backgroundRecordingReady && !backgroundRecordingEnabled && (
             <View style={styles.backgroundActionsRow}>
               <TouchableOpacity
                 style={[
@@ -333,8 +383,8 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={styles.dangerButton} onPress={askResetData}>
-          <Text style={styles.dangerText}>Сбросить прогресс</Text>
+        <TouchableOpacity style={styles.logoutButton} onPress={askLogout}>
+          <Text style={styles.logoutText}>Выйти из аккаунта</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.dangerButton} onPress={askResetApplication}>
@@ -385,6 +435,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
+  cardTextBlock: {
+    flex: 1,
+    paddingRight: 12,
+  },
   cardTitle: {
     color: "#FFFFFF",
     fontSize: 16,
@@ -432,13 +486,18 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     marginLeft: 12,
   },
-  backgroundStatusDot: {
+  statusMeta: {
+    alignItems: "flex-end",
+    justifyContent: "center",
+    minWidth: 20,
+  },
+  statusDot: {
     width: 10,
     height: 10,
     borderRadius: 5,
     marginRight: 8,
   },
-  backgroundStatusDotOff: {
+  statusDotOff: {
     backgroundColor: "#AAB3D1",
   },
   backgroundStatusText: {
@@ -510,6 +569,18 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     opacity: 0.6,
+  },
+  logoutButton: {
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 8,
+    paddingVertical: 15,
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  logoutText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "900",
   },
   dangerButton: {
     backgroundColor: "rgba(235, 87, 87, 0.16)",

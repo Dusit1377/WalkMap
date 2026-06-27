@@ -15,11 +15,13 @@ import { preferencesRepository } from "@/features/storage/repositories";
 export default function BatteryPermissionScreen() {
   const router = useRouter();
   const { accentTheme } = useAccentTheme();
-  const [confirmed, setConfirmed] = useState(false);
+  const [openedSettings, setOpenedSettings] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  async function goNext() {
-    if (!confirmed) {
+  async function handlePrimaryAction() {
+    if (!openedSettings) {
+      setOpenedSettings(true);
+      await Linking.openSettings();
       return;
     }
 
@@ -42,8 +44,9 @@ export default function BatteryPermissionScreen() {
           <Text style={styles.eyebrow}>Перед прогулкой</Text>
           <Text style={styles.title}>Отключи ограничение батареи</Text>
           <Text style={styles.subtitle}>
-            На Android это помогает не прерывать запись маршрута, когда телефон
-            лежит в кармане или экран выключен.
+            Некоторые Android-смартфоны могут останавливать запись прогулки в
+            фоне. Отключите ограничение батареи для WalkMap, затем вернитесь
+            сюда и нажмите «Далее».
           </Text>
         </View>
 
@@ -54,51 +57,34 @@ export default function BatteryPermissionScreen() {
           </Text>
         </View>
 
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => Linking.openSettings()}
-          style={styles.secondaryButton}
-        >
-          <Text style={styles.secondaryButtonText}>Открыть настройки</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => setConfirmed(true)}
-          style={[
-            styles.confirmRow,
-            confirmed && {
-              borderColor: accentTheme.color,
-              backgroundColor: "#17233A",
-            },
-          ]}
-        >
+        <View style={styles.statusCard}>
           <View
             style={[
-              styles.checkbox,
-              confirmed && {
-                backgroundColor: accentTheme.color,
-                borderColor: accentTheme.color,
-              },
+              styles.statusDot,
+              { backgroundColor: openedSettings ? "#27AE60" : "#F6C343" },
             ]}
           />
-          <Text style={styles.confirmText}>
-            Я отключил ограничение батареи для WalkMap
+          <Text style={styles.statusText}>
+            {openedSettings
+              ? "Готово к продолжению"
+              : "Откройте настройки батареи"}
           </Text>
-        </TouchableOpacity>
+        </View>
       </View>
 
       <TouchableOpacity
         activeOpacity={0.9}
-        disabled={!confirmed || busy}
-        onPress={goNext}
+        disabled={busy}
+        onPress={handlePrimaryAction}
         style={[
           styles.primaryButton,
-          { backgroundColor: accentTheme.color },
-          (!confirmed || busy) && styles.disabledButton,
+          { backgroundColor: openedSettings ? "#27AE60" : accentTheme.color },
+          busy && styles.disabledButton,
         ]}
       >
-        <Text style={styles.primaryButtonText}>Дальше</Text>
+        <Text style={styles.primaryButtonText}>
+          {openedSettings ? "Далее" : "Открыть настройки"}
+        </Text>
       </TouchableOpacity>
     </View>
   );
@@ -160,36 +146,23 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     textAlign: "center",
   },
-  secondaryButton: {
-    alignItems: "center",
-    backgroundColor: "#202944",
-    borderRadius: 8,
-    minHeight: 50,
-    justifyContent: "center",
-  },
-  secondaryButtonText: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "900",
-  },
-  confirmRow: {
+  statusCard: {
     alignItems: "center",
     backgroundColor: "#151C33",
     borderColor: "#263156",
     borderRadius: 8,
     borderWidth: 1,
     flexDirection: "row",
-    gap: 12,
-    padding: 16,
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
-  checkbox: {
-    borderColor: "#AAB3D1",
-    borderRadius: 5,
-    borderWidth: 2,
-    height: 22,
-    width: 22,
+  statusDot: {
+    borderRadius: 6,
+    height: 12,
+    width: 12,
   },
-  confirmText: {
+  statusText: {
     color: "#FFFFFF",
     flex: 1,
     fontSize: 15,

@@ -384,3 +384,7 @@ export async function removeProfileSettingsFromStorage() {
   await AsyncStorage.removeItem(STORAGE_LOCAL_PROFILE_KEY);
   await AsyncStorage.removeItem(STORAGE_ACCENT_COLOR_KEY);
 }
+
+export async function removeLocalProfileFromStorage() {
+  await AsyncStorage.removeItem(STORAGE_LOCAL_PROFILE_KEY);
+}

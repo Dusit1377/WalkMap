@@ -1377,23 +1377,6 @@ export default function Index() {
     };
   }
 
-  function askResetData() {
-    showAppDialog({
-      title: "Сбросить весь прогресс?",
-      message:
-        "Будут удалены прогулки, история и открытая территория. Ник и цвет останутся сохранёнными.",
-      variant: "danger",
-      actions: [
-        { text: "Отмена", variant: "secondary" },
-        {
-          text: "Сбросить",
-          variant: "danger",
-          onPress: resetData,
-        },
-      ],
-    });
-  }
-
   function askResetApplication() {
     showAppDialog({
       title: "Сбросить всё приложение?",

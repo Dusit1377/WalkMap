@@ -18,6 +18,7 @@ import {
   readOpenedCellsFromStorage,
   readStorageVersionFromStorage,
   removeActiveWalkFromStorage,
+  removeLocalProfileFromStorage,
   removeProfileSettingsFromStorage,
   removeProgressDataFromStorage,
   saveAccentColorToStorage,
@@ -116,6 +117,7 @@ export const profileRepository = {
   hasLegacyLocalProgress: hasLegacyLocalProgressInStorage,
   readLegacyProfileNickname: readLegacyProfileNicknameFromStorage,
   clearProfileSettings: removeProfileSettingsFromStorage,
+  clearProfile: removeLocalProfileFromStorage,
 };
 
 export const lastLocationRepository = {
