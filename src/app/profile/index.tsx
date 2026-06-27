@@ -149,6 +149,42 @@ export default function ProfileScreen() {
             <Text style={styles.statLabel}>наград</Text>
           </View>
         </View>
+
+        <View style={styles.menuList}>
+          <TouchableOpacity
+            style={styles.menuRow}
+            onPress={() => router.push("/profile/statistics")}
+          >
+            <Text style={styles.menuTitle}>Статистика</Text>
+            <Text style={styles.menuMeta}>{formatKm(stats.totalDistanceKm)} км</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.menuRow}
+            onPress={() => router.push("/profile/history")}
+          >
+            <Text style={styles.menuTitle}>История прогулок</Text>
+            <Text style={styles.menuMeta}>{history.length}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.menuRow}
+            onPress={() => router.push("/profile/achievements")}
+          >
+            <Text style={styles.menuTitle}>Достижения</Text>
+            <Text style={styles.menuMeta}>
+              {unlockedAchievements.length}/{achievements.length}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.menuRow}
+            onPress={() => router.push("/settings")}
+          >
+            <Text style={styles.menuTitle}>Настройки профиля</Text>
+            <Text style={styles.menuMeta}>›</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
     </View>
   );
@@ -303,5 +339,31 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     marginTop: 6,
+  },
+  menuList: {
+    marginTop: 12,
+  },
+  menuRow: {
+    minHeight: 54,
+    borderRadius: 8,
+    backgroundColor: "#151C33",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.07)",
+    marginBottom: 10,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  menuTitle: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  menuMeta: {
+    color: "#AAB3D1",
+    fontSize: 13,
+    fontWeight: "800",
+    marginLeft: 12,
   },
 });

@@ -8,6 +8,9 @@ export default function TabLayout() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="profile" />
+        <Stack.Screen name="profile/statistics" />
+        <Stack.Screen name="profile/history" />
+        <Stack.Screen name="profile/achievements" />
         <Stack.Screen name="settings" />
       </Stack>
     </ThemeProvider>

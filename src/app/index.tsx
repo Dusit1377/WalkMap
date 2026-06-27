@@ -305,10 +305,6 @@ export default function Index() {
   const [mapReady, setMapReady] = useState(false);
 
   const [resultModalVisible, setResultModalVisible] = useState(false);
-  const [historyModalVisible, setHistoryModalVisible] = useState(false);
-  const [statsModalVisible, setStatsModalVisible] = useState(false);
-  const [achievementsModalVisible, setAchievementsModalVisible] =
-    useState(false);
   const [finishConfirmVisible, setFinishConfirmVisible] = useState(false);
   const [finishConfirmMode, setFinishConfirmMode] = useState<"normal" | "short">(
     "normal",
@@ -1401,19 +1397,6 @@ export default function Index() {
     return value.toFixed(2).replace(".", ",");
   }
 
-  function formatSpeedKmh(value: number) {
-    const safeValue = Number.isFinite(value) ? Math.max(0, value) : 0;
-    return `${safeValue.toFixed(1).replace(".", ",")} км/ч`;
-  }
-
-  function formatArea(value: number) {
-    if (value < 1) {
-      return `${Math.round(value * 1_000_000)} м²`;
-    }
-
-    return `${value.toFixed(2).replace(".", ",")} км²`;
-  }
-
   function pointToMercatorMeters(point: WalkPoint) {
     const latitude = Math.max(-85, Math.min(85, point.latitude));
     const longitude = Math.max(-180, Math.min(180, point.longitude));
@@ -1967,26 +1950,6 @@ export default function Index() {
     };
   }
 
-  const totalDistanceKm = history.reduce(
-    (sum, item) => sum + (Number(item.distanceKm) || 0),
-    0,
-  );
-
-  const totalDurationSec = history.reduce(
-    (sum, item) => sum + (Number(item.durationSec) || 0),
-    0,
-  );
-
-  const longestWalkKm = history.reduce(
-    (max, item) => Math.max(max, Number(item.distanceKm) || 0),
-    0,
-  );
-
-  const openedAreaKm2 = Math.max(
-    0,
-    totalDistanceKm * ((UNLOCK_RADIUS_METERS * 2) / 1000),
-  );
-
   const progressStats = getProgressStats([], history);
   const levelInfo = progressStats.levelInfo;
   const dailyProgress = progressStats.dailyProgress;
@@ -2329,7 +2292,7 @@ export default function Index() {
           <View style={styles.homeCardsRow}>
             <TouchableOpacity
               style={[styles.homeInfoCard, { borderColor: accentTheme.border }]}
-              onPress={() => setStatsModalVisible(true)}
+              onPress={() => router.push("/profile/statistics")}
             >
               <Text style={styles.homeInfoLabel}>Цель дня</Text>
               <Text style={[styles.homeInfoValue, { color: accentTheme.color }]}>
@@ -2339,7 +2302,7 @@ export default function Index() {
 
             <TouchableOpacity
               style={[styles.homeInfoCard, { borderColor: "rgba(255,255,255,0.08)" }]}
-              onPress={() => setStatsModalVisible(true)}
+              onPress={() => router.push("/profile/statistics")}
             >
               <Text style={styles.homeInfoLabel}>Серия</Text>
               <Text style={styles.homeInfoValue}>
@@ -2349,7 +2312,7 @@ export default function Index() {
 
             <TouchableOpacity
               style={[styles.homeInfoCard, { borderColor: "rgba(255,255,255,0.08)" }]}
-              onPress={() => setAchievementsModalVisible(true)}
+              onPress={() => router.push("/profile/achievements")}
             >
               <Text style={styles.homeInfoLabel}>Награды</Text>
               <Text style={styles.homeInfoValue}>
@@ -2597,228 +2560,11 @@ export default function Index() {
               style={styles.secondaryButton}
               onPress={() => {
                 setResultModalVisible(false);
-                setHistoryModalVisible(true);
+                router.push("/profile/history");
               }}
             >
               <Text style={styles.secondaryButtonText}>Посмотреть историю</Text>
             </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={historyModalVisible} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.sheetCard}>
-            <View style={styles.sheetHeader}>
-              <View>
-                <Text style={styles.sheetTitle}>История прогулок</Text>
-                <Text style={styles.sheetSubtitle}>
-                  Всего прогулок: {history.length}
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                style={styles.closeButton}
-                onPress={() => setHistoryModalVisible(false)}
-              >
-                <Text style={styles.closeButtonText}>×</Text>
-              </TouchableOpacity>
-            </View>
-
-            {history.length === 0 ? (
-              <View style={styles.emptyBox}>
-                <Text style={styles.emptyTitle}>Пока пусто</Text>
-                <Text style={styles.emptyText}>
-                  Заверши первую прогулку, и она появится здесь.
-                </Text>
-              </View>
-            ) : (
-              <ScrollView showsVerticalScrollIndicator={false}>
-                {history.map((item, index) => {
-                  const itemAchievements = item.achievementsUnlocked
-                    ?.map(getAchievementById)
-                    .filter(Boolean) as Achievement[] | undefined;
-
-                  return (
-                    <View key={item.id} style={styles.historyItem}>
-                      <View style={styles.historyTopRow}>
-                        <Text style={styles.historyTitle}>
-                          Прогулка #{history.length - index}
-                        </Text>
-                        <Text style={styles.historyDate}>{item.date}</Text>
-                      </View>
-
-                      <View style={styles.historyStatsRow}>
-                        <View style={styles.historyStat}>
-                          <Text style={styles.historyStatLabel}>Км</Text>
-                          <Text style={styles.historyStatValue}>
-                            {formatKm(item.distanceKm)}
-                          </Text>
-                        </View>
-
-                        <View style={styles.historyStat}>
-                          <Text style={styles.historyStatLabel}>Время</Text>
-                          <Text style={styles.historyStatValue}>
-                            {formatTime(item.durationSec)}
-                          </Text>
-                        </View>
-
-                        <View style={styles.historyStat}>
-                          <Text style={styles.historyStatLabel}>Новые</Text>
-                          <Text style={styles.historyStatValue}>
-                            —
-                          </Text>
-                        </View>
-
-                        <View style={styles.historyStat}>
-                          <Text style={styles.historyStatLabel}>Всего</Text>
-                          <Text style={styles.historyStatValue}>
-                            —
-                          </Text>
-                        </View>
-                      </View>
-
-                      {itemAchievements && itemAchievements.length > 0 && (
-                        <Text style={styles.historyAchievementText}>
-                          ★ {itemAchievements.map((a) => a.title).join(", ")}
-                        </Text>
-                      )}
-                    </View>
-                  );
-                })}
-              </ScrollView>
-            )}
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={statsModalVisible} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.sheetCard}>
-            <View style={styles.sheetHeader}>
-              <View>
-                <Text style={styles.sheetTitle}>Общая статистика</Text>
-                <Text style={styles.sheetSubtitle}>Твой прогресс WalkMap</Text>
-              </View>
-
-              <TouchableOpacity
-                style={styles.closeButton}
-                onPress={() => setStatsModalVisible(false)}
-              >
-                <Text style={styles.closeButtonText}>×</Text>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <View style={styles.bigStatsGrid}>
-                <View style={styles.bigStatBox}>
-                  <Text style={styles.bigStatValue}>{history.length}</Text>
-                  <Text style={styles.bigStatLabel}>прогулок</Text>
-                </View>
-
-                <View style={styles.bigStatBox}>
-                  <Text style={styles.bigStatValue}>
-                    {formatKm(totalDistanceKm)}
-                  </Text>
-                  <Text style={styles.bigStatLabel}>км всего</Text>
-                </View>
-
-                <View style={styles.bigStatBox}>
-                  <Text style={styles.bigStatValue}>
-                    {formatTime(totalDurationSec)}
-                  </Text>
-                  <Text style={styles.bigStatLabel}>в пути</Text>
-                </View>
-
-                <View style={styles.bigStatBox}>
-                  <Text style={styles.bigStatValue}>
-                    {formatSpeedKmh(progressStats.avgSpeedKmh)}
-                  </Text>
-                  <Text style={styles.bigStatLabel}>средняя скорость</Text>
-                </View>
-
-                <View style={styles.bigStatBox}>
-                  <Text style={styles.bigStatValue}>
-                    {formatKm(longestWalkKm)}
-                  </Text>
-                  <Text style={styles.bigStatLabel}>лучший маршрут</Text>
-                </View>
-
-                <View style={styles.bigStatBox}>
-                  <Text style={styles.bigStatValue}>
-                    {progressStats.streak}
-                  </Text>
-                  <Text style={styles.bigStatLabel}>дней серия</Text>
-                </View>
-
-              </View>
-
-              <View style={styles.areaCard}>
-                <Text style={styles.areaLabel}>Примерная открытая площадь</Text>
-                <Text style={styles.areaValue}>{formatArea(openedAreaKm2)}</Text>
-                <Text style={styles.areaHint}>
-                  Расчёт приблизительный, потому что территория строится по GPS-радиусу.
-                </Text>
-              </View>
-
-              <View style={styles.areaCard}>
-                <Text style={styles.areaLabel}>Дневная цель</Text>
-                <Text style={styles.areaValue}>
-                  {dailyProgress.distanceGoalPercent}%
-                </Text>
-                <Text style={styles.areaHint}>
-                  Сегодня: {dailyProgress.walks} прогулок · {formatKm(dailyProgress.distanceKm)} км
-                </Text>
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={achievementsModalVisible} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.sheetCard}>
-            <View style={styles.sheetHeader}>
-              <View>
-                <Text style={styles.sheetTitle}>Достижения</Text>
-                <Text style={styles.sheetSubtitle}>
-                  Открыто: {unlockedAchievements.length}/{achievements.length}
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                style={styles.closeButton}
-                onPress={() => setAchievementsModalVisible(false)}
-              >
-                <Text style={styles.closeButtonText}>×</Text>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {achievements.map((achievement) => (
-                <View
-                  key={achievement.id}
-                  style={[
-                    styles.achievementItem,
-                    achievement.isUnlocked
-                      ? styles.achievementUnlocked
-                      : styles.achievementLocked,
-                  ]}
-                >
-                  <Text style={styles.achievementIcon}>
-                    {achievement.isUnlocked ? "★" : "☆"}
-                  </Text>
-                  <View style={styles.achievementTextBlock}>
-                    <Text style={styles.achievementTitle}>
-                      {achievement.title}
-                    </Text>
-                    <Text style={styles.achievementDescription}>
-                      {achievement.description}
-                    </Text>
-                  </View>
-                </View>
-              ))}
-            </ScrollView>
           </View>
         </View>
       </Modal>
