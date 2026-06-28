@@ -18,6 +18,7 @@ import {
   readOpenedCellsFromStorage,
   readStorageVersionFromStorage,
   removeActiveWalkFromStorage,
+  removeBatteryInstructionAckFromStorage,
   removeLocalProfileFromStorage,
   removeProfileSettingsFromStorage,
   removeProgressDataFromStorage,
@@ -54,6 +55,7 @@ export const preferencesRepository = {
   writeStorageVersion: writeStorageVersionToStorage,
   readBatteryInstructionAcknowledged: readBatteryInstructionAckFromStorage,
   writeBatteryInstructionAcknowledged: saveBatteryInstructionAckToStorage,
+  clearBatteryInstructionAcknowledged: removeBatteryInstructionAckFromStorage,
 };
 
 export const activeWalkRepository = {

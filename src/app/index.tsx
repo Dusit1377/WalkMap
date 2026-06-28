@@ -157,11 +157,9 @@ const EMPTY_FEATURE_COLLECTION: MapGeoJsonData = {
 
 type MapFallbackOperation =
   | "coverage-rings"
-  | "live-coverage-rings"
   | "fog-geojson"
+  | "opened-fill-geojson"
   | "opened-edge-geojson"
-  | "live-fill-geojson"
-  | "live-edge-geojson"
   | "user-radius-geojson"
   | "route-geojson"
   | "user-geojson";
@@ -377,7 +375,7 @@ function getGeoJsonApproxSize(geoJson: MapGeoJsonData) {
 function getBackgroundTrackingLabel(state: BackgroundTrackingState) {
   if (state === "active") return "Активна";
   if (state === "permissionDenied") return "Только при открытом";
-  if (state === "starting") return "Запускается";
+  if (state === "starting") return "Старт";
   if (state === "stoppedBySystem") return "Остановлена системой";
   if (state === "error") return "Ошибка";
   if (state === "inactive") return "Неактивна";
@@ -539,10 +537,6 @@ export default function Index() {
   });
   const distanceKmRef = useRef(0);
   const coverageGeometryCacheRef = useRef<{
-    key: string;
-    rings: [number, number][][];
-  } | null>(null);
-  const liveCoverageGeometryCacheRef = useRef<{
     key: string;
     rings: [number, number][][];
   } | null>(null);
@@ -1738,6 +1732,14 @@ export default function Index() {
     return sum / 2;
   }
 
+  function makeFillOuterRing(ring: [number, number][]) {
+    return getRingSignedArea(ring) < 0 ? [...ring].reverse() : ring;
+  }
+
+  function makeFogHoleRing(ring: [number, number][]) {
+    return getRingSignedArea(ring) > 0 ? [...ring].reverse() : ring;
+  }
+
   function getMercatorRingArea(ring: MercatorPoint[]) {
     let sum = 0;
 
@@ -1820,10 +1822,23 @@ export default function Index() {
     }
   }
 
+  function addPointCoverageSamples(
+    samples: MercatorPoint[],
+    seen: Set<string>,
+    routePoints: WalkPoint[],
+  ) {
+    routePoints
+      .filter(isValidWalkPoint)
+      .forEach((point) => {
+        addCoverageSample(samples, seen, pointToMercatorMeters(point));
+      });
+  }
+
   function collectCoverageSamples(
     routes: CoverageRoute[],
     routePoints: WalkPoint[],
     fallbackPoint: WalkPoint | null,
+    connectRoutePoints = true,
   ) {
     const samples: MercatorPoint[] = [];
     const seen = new Set<string>();
@@ -1832,7 +1847,11 @@ export default function Index() {
       addRouteCoverageSamples(samples, seen, route.points);
     });
 
-    addRouteCoverageSamples(samples, seen, routePoints);
+    if (connectRoutePoints) {
+      addRouteCoverageSamples(samples, seen, routePoints);
+    } else {
+      addPointCoverageSamples(samples, seen, routePoints);
+    }
 
     if (fallbackPoint) {
       addCoverageSample(samples, seen, pointToMercatorMeters(fallbackPoint));
@@ -2125,8 +2144,14 @@ export default function Index() {
     routes: CoverageRoute[],
     routePoints: WalkPoint[],
     fallbackPoint: WalkPoint | null,
+    connectRoutePoints = true,
   ) {
-    const samples = collectCoverageSamples(routes, routePoints, fallbackPoint);
+    const samples = collectCoverageSamples(
+      routes,
+      routePoints,
+      fallbackPoint,
+      connectRoutePoints,
+    );
 
     if (samples.length === 0) {
       return [];
@@ -2211,7 +2236,7 @@ export default function Index() {
           properties: {},
           geometry: {
             type: "Polygon" as const,
-            coordinates: [FOG_OUTER_RING, ...openedRings],
+            coordinates: [FOG_OUTER_RING, ...openedRings.map(makeFogHoleRing)],
           },
         },
       ],
@@ -2250,7 +2275,7 @@ export default function Index() {
         properties: {},
         geometry: {
           type: "Polygon" as const,
-          coordinates: [ring],
+          coordinates: [makeFillOuterRing(ring)],
         },
       })),
     };
@@ -2304,9 +2329,30 @@ export default function Index() {
     return displayRoutePoints.slice(-LIVE_COVERAGE_PREVIEW_POINTS_LIMIT);
   }, [displayRoutePoints, isWalking]);
 
+  const liveCoverageFallbackPoint = useMemo(() => {
+    if (!isWalking || !currentLocation) {
+      return null;
+    }
+
+    const lastPreviewPoint =
+      liveCoveragePreviewPoints[liveCoveragePreviewPoints.length - 1];
+
+    if (
+      lastPreviewPoint &&
+      getDistanceKm(lastPreviewPoint, currentLocation) < 0.001
+    ) {
+      return null;
+    }
+
+    return currentLocation;
+  }, [currentLocation, isWalking, liveCoveragePreviewPoints]);
+
   const openedBoundaryRings = useMemo(() => {
     try {
-      const cacheKey = getCoverageCacheKey(coverageRoutes, liveCoveragePreviewPoints);
+      const cacheKey = `${getCoverageCacheKey(
+        coverageRoutes,
+        liveCoveragePreviewPoints,
+      )}|live:${liveCoverageFallbackPoint ? getRouteCacheEdge([liveCoverageFallbackPoint]) : "none"}`;
 
       if (coverageGeometryCacheRef.current?.key === cacheKey) {
         return coverageGeometryCacheRef.current.rings;
@@ -2316,7 +2362,8 @@ export default function Index() {
       const rings = makeOpenedRadiusRings(
         coverageRoutes,
         liveCoveragePreviewPoints,
-        null,
+        liveCoverageFallbackPoint,
+        false,
       );
 
       coverageGeometryCacheRef.current = {
@@ -2330,6 +2377,7 @@ export default function Index() {
         coverageRoutes: coverageRoutes.length,
         fullActivePoints: points.length,
         visibleActivePoints: liveCoveragePreviewPoints.length,
+        fallbackPoint: liveCoverageFallbackPoint ? 1 : 0,
       });
       logLongSessionPerf("coverage-rebuild", {
         durationMs: Date.now() - startedAt,
@@ -2338,6 +2386,7 @@ export default function Index() {
         fullActivePoints: activeWalkRef.current?.points.length ?? points.length,
         memoryPoints: points.length,
         mapPoints: liveCoveragePreviewPoints.length,
+        fallbackPoint: liveCoverageFallbackPoint ? 1 : 0,
       });
 
       return rings;
@@ -2345,28 +2394,12 @@ export default function Index() {
       recordMapFallback("coverage-rings", error);
       return [];
     }
-  }, [coverageRoutes, liveCoveragePreviewPoints, points.length]);
-
-  const liveCoverageBoundaryRings = useMemo(() => {
-    if (!isWalking || liveCoveragePreviewPoints.length === 0) {
-      return [];
-    }
-
-    const cacheKey = getRouteCacheEdge(liveCoveragePreviewPoints);
-
-    if (liveCoverageGeometryCacheRef.current?.key === cacheKey) {
-      return liveCoverageGeometryCacheRef.current.rings;
-    }
-
-    try {
-      const rings = makeOpenedRadiusRings([], liveCoveragePreviewPoints, null);
-      liveCoverageGeometryCacheRef.current = { key: cacheKey, rings };
-      return rings;
-    } catch (error) {
-      recordMapFallback("live-coverage-rings", error);
-      return [];
-    }
-  }, [isWalking, liveCoveragePreviewPoints]);
+  }, [
+    coverageRoutes,
+    liveCoverageFallbackPoint,
+    liveCoveragePreviewPoints,
+    points.length,
+  ]);
 
   const fogGeoJson = useMemo(() => {
     return safeBuildMapGeoJson("fog-geojson", () =>
@@ -2380,17 +2413,11 @@ export default function Index() {
     );
   }, [openedBoundaryRings]);
 
-  const liveCoverageFillGeoJson = useMemo(() => {
-    return safeBuildMapGeoJson("live-fill-geojson", () =>
-      makeOpenedFillGeoJson(liveCoverageBoundaryRings),
+  const openedFillGeoJson = useMemo(() => {
+    return safeBuildMapGeoJson("opened-fill-geojson", () =>
+      makeOpenedFillGeoJson(openedBoundaryRings),
     );
-  }, [liveCoverageBoundaryRings]);
-
-  const liveCoverageEdgeGeoJson = useMemo(() => {
-    return safeBuildMapGeoJson("live-edge-geojson", () =>
-      makeOpenedEdgeGeoJson(liveCoverageBoundaryRings),
-    );
-  }, [liveCoverageBoundaryRings]);
+  }, [openedBoundaryRings]);
 
   const userRadiusGeoJson = useMemo(() => {
     return safeBuildMapGeoJson("user-radius-geojson", () =>
@@ -2536,6 +2563,18 @@ export default function Index() {
           />
         </GeoJSONSource>
 
+        <GeoJSONSource id="opened-fill-source" data={openedFillGeoJson as any}>
+          <Layer
+            id="opened-territory-fill"
+            type="fill"
+            paint={{
+              "fill-color": accentTheme.color,
+              "fill-opacity": 0.18,
+              "fill-antialias": true,
+            }}
+          />
+        </GeoJSONSource>
+
         <GeoJSONSource id="opened-edge-source" data={openedEdgeGeoJson as any}>
           <Layer
             id="opened-territory-edge"
@@ -2552,44 +2591,6 @@ export default function Index() {
           />
         </GeoJSONSource>
 
-        {isWalking && (
-          <GeoJSONSource
-            id="live-coverage-fill-source"
-            data={liveCoverageFillGeoJson as any}
-          >
-            <Layer
-              id="live-coverage-fill"
-              type="fill"
-              paint={{
-                "fill-color": accentTheme.color,
-                "fill-opacity": 0.16,
-                "fill-antialias": true,
-              }}
-            />
-          </GeoJSONSource>
-        )}
-
-        {isWalking && (
-          <GeoJSONSource
-            id="live-coverage-edge-source"
-            data={liveCoverageEdgeGeoJson as any}
-          >
-            <Layer
-              id="live-coverage-edge"
-              type="line"
-              layout={{
-                "line-cap": "round",
-                "line-join": "round",
-              }}
-              paint={{
-                "line-color": accentTheme.color,
-                "line-width": 3,
-                "line-opacity": 0.92,
-              }}
-            />
-          </GeoJSONSource>
-        )}
-
         <GeoJSONSource id="user-radius-source" data={userRadiusGeoJson as any}>
           <Layer
             id="user-radius-halo"
@@ -2600,9 +2601,9 @@ export default function Index() {
             }}
             paint={{
               "line-color": accentTheme.color,
-              "line-width": 18,
-              "line-opacity": 0.18,
-              "line-blur": 10,
+              "line-width": isWalking ? 12 : 18,
+              "line-opacity": isWalking ? 0.12 : 0.18,
+              "line-blur": isWalking ? 8 : 10,
             }}
           />
           <Layer
@@ -2610,7 +2611,7 @@ export default function Index() {
             type="fill"
             paint={{
               "fill-color": accentTheme.color,
-              "fill-opacity": 0.11,
+              "fill-opacity": isWalking ? 0.045 : 0.11,
               "fill-antialias": true,
             }}
           />
@@ -2623,8 +2624,8 @@ export default function Index() {
             }}
             paint={{
               "line-color": accentTheme.color,
-              "line-width": 7,
-              "line-opacity": 0.22,
+              "line-width": isWalking ? 5 : 7,
+              "line-opacity": isWalking ? 0.18 : 0.22,
               "line-blur": 3,
             }}
           />
@@ -2637,8 +2638,8 @@ export default function Index() {
             }}
             paint={{
               "line-color": accentTheme.color,
-              "line-width": 2.2,
-              "line-opacity": 0.92,
+              "line-width": isWalking ? 2 : 2.2,
+              "line-opacity": isWalking ? 0.78 : 0.92,
             }}
           />
         </GeoJSONSource>

@@ -1,56 +1,230 @@
-# Welcome to your Expo app 👋
+# WalkMap
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+WalkMap - мобильное приложение на Expo/React Native для прогулок с картой, записью маршрута и визуальным "открытием" территории вокруг пройденного пути.
 
-## Get started
+Приложение рассчитано на Android: использует геолокацию, фоновую запись, локальное хранилище и карту MapLibre.
 
-1. Install dependencies
+## Возможности
 
-   ```bash
-   npm install
-   ```
+- Запуск и завершение прогулки.
+- Отображение текущей позиции на карте.
+- Запись маршрута во время активной прогулки.
+- Фоновая запись прогулки при заблокированном экране, если разрешения Android выданы.
+- Отображение открытой территории вокруг маршрутов и текущей точки.
+- История прогулок.
+- Профиль, статистика, серия дней и достижения.
+- Локальное хранение данных на устройстве.
+- Экран настроек с выбором акцентного цвета, сбросом прогресса и выходом из локального профиля.
+- Подсказки по разрешениям геолокации и настройкам батареи.
+- Локальная очередь обезличенных отчетов об ошибках.
 
-2. Start the app
+## Стек
 
-   ```bash
-   npx expo start
-   ```
+- Expo SDK 56
+- React Native 0.85
+- React 19
+- Expo Router
+- TypeScript
+- MapLibre React Native
+- Expo Location
+- Expo Task Manager
+- Expo SQLite
+- AsyncStorage
 
-In the output, you'll find options to open the app in a
+## Требования
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+- Node.js
+- npm
+- Android Studio или установленный Android SDK
+- Подключенное Android-устройство или эмулятор
+- Для фоновой записи на реальном устройстве нужны разрешения геолокации и отключенные ограничения батареи для приложения
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Установка
 
 ```bash
-npm run reset-project
+npm install
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Запуск в разработке
 
-### Other setup steps
+```bash
+npm run android
+```
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+или:
 
-## Learn more
+```bash
+npx expo start
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+Важно: приложение использует нативные возможности карты и фоновой геолокации, поэтому для полноценной проверки нужен development build или обычная Android-сборка. Expo Go для этого проекта не подходит как полноценная среда тестирования.
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## Проверка TypeScript
 
-## Join the community
+```bash
+npx tsc --noEmit
+```
 
-Join our community of developers creating universal apps.
+## Сборка Android APK
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Локальная release-сборка:
+
+```bash
+cd android
+./gradlew assembleRelease
+```
+
+Готовый APK появится здесь:
+
+```text
+android/app/build/outputs/apk/release/app-release.apk
+```
+
+Через EAS можно собрать preview APK:
+
+```bash
+npx eas build --profile preview --platform android
+```
+
+Production-профиль в `eas.json` собирает Android App Bundle:
+
+```bash
+npx eas build --profile production --platform android
+```
+
+## Разрешения Android
+
+Приложению нужны:
+
+- `ACCESS_FINE_LOCATION` и `ACCESS_COARSE_LOCATION` - определение текущего положения.
+- `ACCESS_BACKGROUND_LOCATION` - запись прогулки в фоне.
+- `FOREGROUND_SERVICE` и `FOREGROUND_SERVICE_LOCATION` - фоновая запись через foreground service.
+- `POST_NOTIFICATIONS` - уведомление фоновой записи на новых версиях Android.
+- `RECEIVE_BOOT_COMPLETED` - корректная работа фоновых задач Expo Task Manager после перезапуска устройства.
+
+Для надежной фоновой записи на некоторых устройствах также нужно вручную отключить ограничения батареи для WalkMap в системных настройках Android.
+
+## Структура проекта
+
+```text
+src/app
+```
+
+Экраны приложения и маршруты Expo Router.
+
+```text
+src/app/index.tsx
+```
+
+Главный экран карты, запуск прогулки, текущая позиция, открытая территория и интерфейс активной записи.
+
+```text
+src/app/settings.tsx
+```
+
+Настройки, сброс данных, выход из локального профиля и состояние разрешений.
+
+```text
+src/app/permissions
+```
+
+Экраны объяснения разрешений геолокации и настроек батареи.
+
+```text
+src/app/profile
+```
+
+Профиль, история, статистика и достижения.
+
+```text
+src/features/walkSession
+```
+
+Логика активной прогулки: старт, восстановление, добавление точек, завершение и диагностика.
+
+```text
+src/features/location
+```
+
+Проверка качества GPS-точек и отбраковка подозрительных скачков.
+
+```text
+src/features/storage
+```
+
+Репозитории хранения, AsyncStorage-совместимость и SQLite.
+
+```text
+src/features/statistics
+```
+
+Расчет дистанции, времени, скорости, серии дней и общей статистики.
+
+```text
+src/features/achievements
+```
+
+Список достижений и расчет новых открытых наград.
+
+```text
+src/features/errorReporting
+```
+
+Обезличивание и локальная очередь отчетов об ошибках. Внешняя отправка выключена по умолчанию.
+
+## Данные
+
+Основные данные хранятся локально на устройстве:
+
+- активная прогулка;
+- история прогулок;
+- маршруты открытой территории;
+- профиль;
+- последний цвет темы;
+- последняя известная позиция;
+- служебные отметки разрешений и миграций.
+
+SQLite используется для устойчивого хранения активной прогулки, истории и покрытия. AsyncStorage сохраняется как совместимый слой для настроек и миграций.
+
+## Ручное тестирование
+
+Перед публикацией и передачей сборки стоит проверить:
+
+- первый запуск после полной очистки данных;
+- выдачу разрешений геолокации;
+- экран инструкции по батарее;
+- старт и завершение короткой прогулки;
+- прогулку с заблокированным экраном;
+- восстановление активной прогулки после закрытия приложения;
+- слабый GPS и отсутствие резких скачков маршрута;
+- длинную прогулку от 1 часа;
+- несколько прогулок подряд;
+- историю, статистику и достижения после завершения прогулки;
+- сброс прогресса и выход из профиля во время активной прогулки.
+
+Дополнительный чек-лист находится в `docs/long-session-qa.md`.
+
+## Отчеты об ошибках
+
+Внешняя отправка отчетов отключена по умолчанию. Настройки находятся в:
+
+```text
+src/features/errorReporting/config.ts
+```
+
+Если внешний сбор ошибок понадобится позже, endpoint должен указывать только на сервер, который контролирует владелец приложения. Нельзя хранить токены Telegram или других приватных сервисов внутри мобильного приложения.
+
+## Полезные команды
+
+```bash
+npm install
+npm run android
+npx expo start
+npx tsc --noEmit
+npx eas build --profile preview --platform android
+npx eas build --profile production --platform android
+```
+
+## Лицензия
+
+См. файл `LICENSE`.

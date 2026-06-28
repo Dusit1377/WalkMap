@@ -144,7 +144,7 @@ export default function SettingsScreen() {
         hasStarted
           ? "Активна"
           : isBackgroundReady
-            ? "Готова"
+            ? "Разрешения есть"
             : "Требует настройки",
       );
     } catch {
@@ -168,6 +168,11 @@ export default function SettingsScreen() {
       setBackgroundRecordingEnabled(false);
       setBackgroundRecordingLabel("Готова");
     }
+  }
+
+  async function stopActiveWalkRecording() {
+    await stopBackgroundLocation();
+    await activeWalkRepository.clearActiveWalk();
   }
 
   async function handleAccentThemeSelect(themeId: AccentThemeId) {
@@ -238,8 +243,7 @@ export default function SettingsScreen() {
   }
 
   async function resetProgressData() {
-    await stopBackgroundLocation();
-    await activeWalkRepository.clearActiveWalk();
+    await stopActiveWalkRecording();
     await progressRepository.clearProgressData();
     await coverageRepository.writeCoverageRoutes([]);
     await historyRepository.writeHistory([]);
@@ -263,6 +267,7 @@ export default function SettingsScreen() {
   }
 
   async function logoutFromLocalProfile() {
+    await stopActiveWalkRecording();
     await profileRepository.clearProfile();
     setProfile(null);
     setNicknameDraft("");

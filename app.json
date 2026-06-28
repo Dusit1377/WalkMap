@@ -4,6 +4,7 @@
     "slug": "WalkMap",
     "version": "1.0.0",
     "orientation": "portrait",
+    "icon": "./assets/Icon.png",
     "scheme": "walkmap",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -26,6 +27,7 @@
     },
     "android": {
       "package": "com.dusit137.WalkMap",
+      "versionCode": 1,
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
@@ -34,7 +36,16 @@
         "FOREGROUND_SERVICE_LOCATION",
         "POST_NOTIFICATIONS",
         "RECEIVE_BOOT_COMPLETED"
-      ]
+      ],
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/Icon.png",
+        "backgroundColor": "#0B1020"
+      }
     },
     "web": {
       "bundler": "metro",

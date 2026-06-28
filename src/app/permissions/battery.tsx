@@ -1,6 +1,7 @@
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
+  Image,
   Linking,
   StatusBar,
   StyleSheet,
@@ -50,11 +51,12 @@ export default function BatteryPermissionScreen() {
           </Text>
         </View>
 
-        <View style={styles.placeholder}>
-          <Text style={styles.placeholderTitle}>Место для скриншота</Text>
-          <Text style={styles.placeholderText}>
-            Сюда можно добавить картинку с настройкой батареи для WalkMap.
-          </Text>
+        <View style={styles.screenshotFrame}>
+          <Image
+            resizeMode="contain"
+            source={require("@/assets/Battery.png")}
+            style={styles.screenshot}
+          />
         </View>
 
         <View style={styles.statusCard}>
@@ -123,28 +125,19 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     lineHeight: 23,
   },
-  placeholder: {
-    minHeight: 280,
-    borderColor: "#33406B",
+  screenshotFrame: {
+    alignItems: "center",
+    backgroundColor: "#151C33",
+    borderColor: "#263156",
     borderRadius: 8,
-    borderStyle: "dashed",
-    borderWidth: 2,
+    borderWidth: 1,
+    height: 320,
     justifyContent: "center",
-    padding: 24,
+    overflow: "hidden",
   },
-  placeholderTitle: {
-    color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "900",
-    marginBottom: 8,
-    textAlign: "center",
-  },
-  placeholderText: {
-    color: "#AAB3D1",
-    fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 20,
-    textAlign: "center",
+  screenshot: {
+    height: "100%",
+    width: "100%",
   },
   statusCard: {
     alignItems: "center",

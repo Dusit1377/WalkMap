@@ -18,10 +18,13 @@ const STORAGE_LOCAL_PROFILE_KEY = "walkmap_local_profile";
 const STORAGE_LOCAL_PROFILE_LOGGED_OUT_KEY = "walkmap_local_profile_logged_out";
 const STORAGE_LAST_LOCATION_KEY = "walkmap_last_location";
 const STORAGE_BATTERY_INSTRUCTION_ACK_KEY = "walkmap_battery_instruction_ack";
+const STORAGE_BATTERY_INSTRUCTION_VERSION_KEY =
+  "walkmap_battery_instruction_version";
 const STORAGE_VERSION_KEY = "walkmap_storage_version";
 const STORAGE_ERROR_LOG_KEY = "walkmap_storage_error_log";
 const LEGACY_LOCAL_SESSION_KEY = "walkmap_local_session";
 const CURRENT_STORAGE_VERSION = "1";
+const CURRENT_BATTERY_INSTRUCTION_VERSION = "2";
 const MAX_STORAGE_ERROR_LOG_ENTRIES = 50;
 
 type StorageErrorLogEntry = {
@@ -282,7 +285,15 @@ export async function saveAccentColorToStorage(themeId: string) {
 
 export async function readBatteryInstructionAckFromStorage() {
   await ensureStorageVersionMarker();
-  return (await safeGetStorageItem(STORAGE_BATTERY_INSTRUCTION_ACK_KEY)) === "true";
+  const [isAcknowledged, instructionVersion] = await Promise.all([
+    safeGetStorageItem(STORAGE_BATTERY_INSTRUCTION_ACK_KEY),
+    safeGetStorageItem(STORAGE_BATTERY_INSTRUCTION_VERSION_KEY),
+  ]);
+
+  return (
+    isAcknowledged === "true" &&
+    instructionVersion === CURRENT_BATTERY_INSTRUCTION_VERSION
+  );
 }
 
 export async function saveBatteryInstructionAckToStorage(isAcknowledged: boolean) {
@@ -290,6 +301,20 @@ export async function saveBatteryInstructionAckToStorage(isAcknowledged: boolean
     STORAGE_BATTERY_INSTRUCTION_ACK_KEY,
     isAcknowledged ? "true" : "false",
   );
+
+  if (isAcknowledged) {
+    await AsyncStorage.setItem(
+      STORAGE_BATTERY_INSTRUCTION_VERSION_KEY,
+      CURRENT_BATTERY_INSTRUCTION_VERSION,
+    );
+  } else {
+    await AsyncStorage.removeItem(STORAGE_BATTERY_INSTRUCTION_VERSION_KEY);
+  }
+}
+
+export async function removeBatteryInstructionAckFromStorage() {
+  await AsyncStorage.removeItem(STORAGE_BATTERY_INSTRUCTION_ACK_KEY);
+  await AsyncStorage.removeItem(STORAGE_BATTERY_INSTRUCTION_VERSION_KEY);
 }
 
 export async function readStorageVersionFromStorage() {
@@ -393,6 +418,8 @@ export async function removeProfileSettingsFromStorage() {
   await AsyncStorage.removeItem(STORAGE_LOCAL_PROFILE_KEY);
   await AsyncStorage.removeItem(STORAGE_LOCAL_PROFILE_LOGGED_OUT_KEY);
   await AsyncStorage.removeItem(STORAGE_ACCENT_COLOR_KEY);
+  await AsyncStorage.removeItem(STORAGE_BATTERY_INSTRUCTION_ACK_KEY);
+  await AsyncStorage.removeItem(STORAGE_BATTERY_INSTRUCTION_VERSION_KEY);
 }
 
 export async function removeLocalProfileFromStorage() {
